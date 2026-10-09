@@ -14,12 +14,22 @@ from urllib.parse import unquote, urlparse
 import httpx
 import yaml
 
-SOURCE_KEYS = (
+CORE_SOURCE_KEYS = (
     "ons_lsoa21_pcon24",
     "ods_gp_practices",
     "nhs_postcode_directory",
     "gp_registered_patients_lsoa",
 )
+PROVIDER_SOURCE_KEYS = (
+    "ods_gp_branches",
+    "ods_nhs_trusts",
+    "ods_nhs_trust_sites",
+    "ods_other",
+    "ods_sub_icb_locations",
+    "ods_sub_icb_sites",
+    "ons_icb26_codes",
+)
+SOURCE_KEYS = CORE_SOURCE_KEYS + PROVIDER_SOURCE_KEYS
 
 
 @dataclass(frozen=True)
@@ -38,10 +48,12 @@ class Source:
 def load_config(path: Path) -> dict[str, Source]:
     """Load the explicit source contract, rejecting missing or unsafe entries."""
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or set(data) != set(SOURCE_KEYS):
-        raise ValueError(f"{path}: expected exactly these sources: {SOURCE_KEYS}")
+    if not isinstance(data, dict) or set(data) not in (set(CORE_SOURCE_KEYS), set(SOURCE_KEYS)):
+        raise ValueError(f"{path}: expected the v0.1 sources or the complete v0.2 source set: {SOURCE_KEYS}")
     result: dict[str, Source] = {}
     for key in SOURCE_KEYS:
+        if key not in data:
+            continue
         item = data[key]
         required = ("url", "filename", "source_version", "source_date", "publisher")
         if not isinstance(item, dict) or any(not item.get(k) for k in required):
@@ -122,8 +134,7 @@ def fetch_sources(config: dict[str, Source], raw_dir: Path, refresh: bool = Fals
     ledger_path = raw_dir / "sources_manifest.json"
     ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else {"sources": {}}
     records = ledger.get("sources", {})
-    for key in SOURCE_KEYS:
-        source = config[key]
+    for key, source in config.items():
         path = raw_dir / source.filename
         old = records.get(key, {})
         cached = (
@@ -165,8 +176,7 @@ def verified_sources(config: dict[str, Source], raw_dir: Path) -> dict:
     if not ledger_path.exists():
         raise FileNotFoundError(f"{ledger_path} is missing; run `nhs-geo fetch` first")
     ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
-    for key in SOURCE_KEYS:
-        source = config[key]
+    for key, source in config.items():
         record = ledger.get("sources", {}).get(key)
         path = raw_dir / source.filename
         if not record or not path.exists() or record.get("url") != source.url:
