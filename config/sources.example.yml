@@ -1,0 +1,16 @@
+ons_lsoa21_pcon24:
+  description: ONS LSOA (2021) to Westminster Parliamentary Constituency (July 2024) Best Fit Lookup in England and Wales
+  url: "SET_CURRENT_OFFICIAL_CSV_URL"
+  expected_columns: [LSOA21CD, LSOA21NM, LSOA21NMW, PCON24CD, PCON24NM, PCON24NMW, LAD21CD, LAD21NM]
+
+ods_gp_practices:
+  description: NHS England ODS DSE GP Practices predefined report
+  url: "SET_DSE_REPORT_OR_API_URL"
+
+postcode_directory:
+  description: NHS ODS postcode files / ONS-supplied postcode geography
+  url: "SET_CURRENT_SOURCE_URL"
+
+gp_registered_patients_lsoa:
+  description: NHS England quarterly GP registered-patient LSOA data
+  url: "SET_CURRENT_PUBLICATION_RESOURCE_URL"
