@@ -350,6 +350,36 @@ def test_outside_address_share_excludes_unmapped_patients() -> None:
     assert report["patient_distribution"]["p90_share_outside_address_pcon"] == 0.0
 
 
+def test_top_unmapped_postcodes_breaks_count_ties_by_postcode() -> None:
+    postcodes = [f"AA1 1A{chr(65 + i)}" for i in range(21)]
+    reversed_postcodes = list(reversed(postcodes))
+    codes = [f"S{i:05d}" for i in range(21)]
+    sites = pl.DataFrame({"org_code": codes})
+    site_bridge = pl.DataFrame({
+        "org_code": codes, "status": ["ACTIVE"] * 21,
+        "postcode_compact": [p.replace(" ", "") for p in reversed_postcodes],
+        "postcode_raw": reversed_postcodes, "postcode": reversed_postcodes,
+        "country_code": [None] * 21, "pcon24cd": [None] * 21,
+        "mapping_method": ["unmapped"] * 21,
+        "unmapped_reason": ["absent_from_postcode_directory"] * 21,
+        "org_role": ["RO76"] * 21,
+    })
+    patient = pl.DataFrame({
+        "practice_code": [codes[0]], "pcon24cd": ["E14001063"],
+        "patient_count": [10], "patient_share": [1.0],
+        "mapping_method": ["lsoa21_best_fit"],
+    })
+    unmapped = pl.DataFrame(schema={
+        "practice_code": pl.String, "patient_count": pl.Int64, "unmapped_reason": pl.String,
+    })
+    report = create_qa_report(
+        pl.DataFrame({"lsoa21cd": ["E01000001"], "pcon24cd_best_fit": ["E14001063"]}),
+        sites, site_bridge, patient, unmapped, 10,
+        pl.DataFrame({"pcon24cd": ["E14001063"]}), {},
+    )
+    assert [row["postcode_raw"] for row in report["site_mapping"]["top_unmapped_postcodes"]] == postcodes[:20]
+
+
 def test_wales_only_build_reports_unavailable_england_rate(tmp_path: Path) -> None:
     config_path, raw = _fixture_sources(tmp_path)
     config = load_config(config_path)

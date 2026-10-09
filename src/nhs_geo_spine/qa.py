@@ -117,7 +117,9 @@ def create_qa_report(
     )
     high_unmapped = unmapped_by_practice.join(practice_totals, on="practice_code").with_columns(
         (pl.col("unmapped_patients") / pl.col("practice_total")).alias("unmapped_share")
-    ).filter(pl.col("unmapped_share") > 0.05).sort("unmapped_share", descending=True).to_dicts()
+    ).filter(pl.col("unmapped_share") > 0.05).sort(
+        ["unmapped_share", "practice_code"], descending=[True, False]
+    ).to_dicts()
     address = site_bridge.select(pl.col("org_code").alias("practice_code"),
                                  pl.col("pcon24cd").alias("address_pcon24cd"))
     with_address = patient_bridge.filter(pl.col("pcon24cd") != "UNMAPPED").join(
@@ -131,7 +133,7 @@ def create_qa_report(
     )
     low_address = address_shares.filter(
         pl.col("address_pcon24cd").is_not_null() & (pl.col("address_patient_share") < 0.10)
-    ).sort("address_patient_share").to_dicts()
+    ).sort(["address_patient_share", "practice_code"]).to_dicts()
     address_shares_known = address_shares.filter(pl.col("address_pcon24cd").is_not_null())
     outside_values = [float(value) for value in address_shares_known[
         "outside_address_patient_share"].to_list()]
@@ -147,7 +149,7 @@ def create_qa_report(
     role_rates.sort(key=lambda row: row["org_role"])
     top_postcodes = active_sites.filter(pl.col("pcon24cd").is_null()).group_by("postcode_raw").agg(
         pl.len().alias("sites")
-    ).sort("sites", descending=True).head(20).to_dicts()
+    ).sort(["sites", "postcode_raw"], descending=[True, False]).head(20).to_dicts()
     warnings = {
         "active_missing_postcode": active_sites.filter(pl.col("postcode_raw").str.strip_chars() == "")
         .select("org_code").to_series().to_list(),
