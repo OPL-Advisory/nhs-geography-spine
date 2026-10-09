@@ -92,13 +92,19 @@ def create_qa_report(
     mapped_valid = valid_active.filter(pl.col("pcon24cd").is_not_null())
     valid_active_england = valid_active.filter(pl.col("country_code") == "E92000001")
     mapped_valid_england = valid_active_england.filter(pl.col("pcon24cd").is_not_null())
+    valid_active_unknown_country = valid_active.filter(pl.col("country_code").is_null())
     misses = valid_active.filter(pl.col("pcon24cd").is_null()).select(
         "org_code", "postcode_raw", "postcode", "country_code", "unmapped_reason"
     ).to_dicts()
     mapping_rate = mapped_valid.height / valid_active.height if valid_active.height else None
+    england_rate_unavailable_reason = (
+        "unknown_country_for_valid_active_gp_postcodes" if valid_active_unknown_country.height
+        else "no_valid_active_england_gp_postcodes" if not valid_active_england.height
+        else None
+    )
     england_mapping_rate = (
         mapped_valid_england.height / valid_active_england.height
-        if valid_active_england.height else None
+        if england_rate_unavailable_reason is None else None
     )
     unmapped_by_reason = unmapped.group_by("unmapped_reason").agg(
         pl.len().alias("rows"), pl.col("patient_count").sum().alias("patients")
@@ -154,7 +160,8 @@ def create_qa_report(
         "address_constituency_under_10_percent": low_address,
     }
     return {
-        "status": "pass_with_warnings" if any(warnings.values()) or misses else "pass",
+        "status": "pass_with_warnings" if any(warnings.values()) or misses
+                  or valid_active_unknown_country.height else "pass",
         "hard_failures": [],
         "patient_reconciliation": {
             "source_total": patient_input_total, "bridge_total": patient_output_total,
@@ -172,8 +179,12 @@ def create_qa_report(
             "valid_active_gp_mapping_rate": mapping_rate,
             "valid_active_england_gp_postcodes": valid_active_england.height,
             "mapped_valid_active_england_gp_postcodes": mapped_valid_england.height,
+            "valid_active_unknown_country_gp_postcodes": valid_active_unknown_country.height,
             "valid_active_england_gp_mapping_rate": england_mapping_rate,
-            "threshold_99_percent_met": england_mapping_rate is not None and england_mapping_rate >= 0.99,
+            "england_rate_unavailable_reason": england_rate_unavailable_reason,
+            "threshold_99_percent_met": (
+                england_mapping_rate >= 0.99 if england_mapping_rate is not None else None
+            ),
             "all_valid_active_misses": misses,
             "mapping_by_org_role": role_rates,
             "top_unmapped_postcodes": top_postcodes,

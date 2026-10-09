@@ -190,9 +190,10 @@ def build(config: Path = typer.Option(DEFAULT_CONFIG), raw_dir: Path = typer.Opt
           offline: bool = typer.Option(False, help="Require verified cached sources; never access the network.")) -> None:
     """Build Parquet/CSV bridges, DuckDB, manifest and QA report."""
     report = build_pipeline(config, raw_dir, processed_dir, offline)
+    england_rate = report["site_mapping"]["valid_active_england_gp_mapping_rate"]
+    rate_display = f"{england_rate:.2%}" if england_rate is not None else "unavailable"
     typer.echo(f"Build {report['status']}: {report['patient_reconciliation']['bridge_total']} patients; "
-               f"{report['site_mapping']['valid_active_england_gp_mapping_rate']:.2%} "
-               "valid active England GP postcodes mapped")
+               f"England valid active GP postcode mapping rate: {rate_display}")
 
 
 @app.command()

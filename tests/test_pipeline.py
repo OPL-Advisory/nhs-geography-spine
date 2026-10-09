@@ -282,3 +282,69 @@ def test_99_percent_flag_uses_england_rate_when_wales_lifts_combined_rate() -> N
     assert report["site_mapping"]["valid_active_gp_mapping_rate"] > 0.99
     assert report["site_mapping"]["valid_active_england_gp_mapping_rate"] == 0.0
     assert report["site_mapping"]["threshold_99_percent_met"] is False
+
+
+def test_unknown_postcode_country_makes_england_acceptance_indeterminate() -> None:
+    sites = pl.DataFrame({"org_code": ["E00001", "X00001"]})
+    bridge = pl.DataFrame({
+        "org_code": ["E00001", "X00001"],
+        "status": ["ACTIVE", "ACTIVE"],
+        "postcode_compact": ["SW1A2AA", "SW1A2AB"],
+        "postcode_raw": ["SW1A 2AA", "SW1A 2AB"],
+        "postcode": ["SW1A 2AA", "SW1A 2AB"],
+        "country_code": ["E92000001", None],
+        "pcon24cd": ["E14001063", None],
+        "mapping_method": ["postcode_direct", "unmapped"],
+        "unmapped_reason": [None, "absent_from_postcode_directory"],
+        "org_role": ["RO76", "RO76"],
+    })
+    patient = pl.DataFrame({
+        "practice_code": ["E00001"], "pcon24cd": ["E14001063"],
+        "patient_count": [10], "patient_share": [1.0],
+        "mapping_method": ["lsoa21_best_fit"],
+    })
+    unmapped = pl.DataFrame(schema={
+        "practice_code": pl.String, "patient_count": pl.Int64, "unmapped_reason": pl.String,
+    })
+    report = create_qa_report(
+        pl.DataFrame({"lsoa21cd": ["E01000001"], "pcon24cd_best_fit": ["E14001063"]}),
+        sites, bridge, patient, unmapped, 10,
+        pl.DataFrame({"pcon24cd": ["E14001063"]}), {},
+    )
+    mapping = report["site_mapping"]
+    assert mapping["valid_active_england_gp_postcodes"] == 1
+    assert mapping["valid_active_unknown_country_gp_postcodes"] == 1
+    assert mapping["valid_active_england_gp_mapping_rate"] is None
+    assert mapping["england_rate_unavailable_reason"] == "unknown_country_for_valid_active_gp_postcodes"
+    assert mapping["threshold_99_percent_met"] is None
+    assert mapping["all_valid_active_misses"][0]["org_code"] == "X00001"
+
+
+def test_wales_only_build_reports_unavailable_england_rate(tmp_path: Path) -> None:
+    config_path, raw = _fixture_sources(tmp_path)
+    config = load_config(config_path)
+    ods_path = Path(config["ods_gp_practices"].url.removeprefix("file://"))
+    ods_path.write_bytes(_csv([_ods("W00001", "CF10 1AA")]))
+    archive_path = Path(config["nhs_postcode_directory"].url.removeprefix("file://"))
+    welsh_postcode = _postcode("CF10 1AA", "W07000001", "W01000001")
+    welsh_postcode[12] = "W92000004"
+    welsh_postcode[46] = "W00000001"
+    welsh_postcode[48] = "W02000001"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("Data/nhg26aug.csv", _csv([welsh_postcode]))
+        archive.writestr("Documents/pcon.csv", _csv([
+            ["PCON24CD", "PCON24NM", "PCON24NMW"],
+            ["E14001063", "Aldershot", ""], ["E14001064", "Aldridge-Brownhills", ""],
+            ["W07000001", "Example Wales", ""],
+        ]))
+    fetch_sources(config, raw)
+    processed = tmp_path / "processed"
+    result = CliRunner().invoke(app, [
+        "build", "--offline", "--config", str(config_path), "--raw-dir", str(raw),
+        "--processed-dir", str(processed),
+    ])
+    assert result.exit_code == 0, result.output
+    assert "England valid active GP postcode mapping rate: unavailable" in result.output
+    report = json.loads((processed / "qa_report.json").read_text(encoding="utf-8"))
+    assert report["site_mapping"]["england_rate_unavailable_reason"] == "no_valid_active_england_gp_postcodes"
+    assert report["site_mapping"]["threshold_99_percent_met"] is None
