@@ -2,7 +2,7 @@
 
 import csv
 import re
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import polars as pl
@@ -10,17 +10,21 @@ import polars as pl
 from .normalise import normalise_postcode
 
 
-def _date(value: str) -> str | None:
+def _date(value: str) -> date | None:
     if not value:
         return None
     try:
-        return datetime.strptime(value, "%Y%m%d").date().isoformat()
+        return datetime.strptime(value, "%Y%m%d").date()
     except ValueError as exc:
         raise ValueError(f"ODS report has invalid YYYYMMDD date {value!r}") from exc
 
 
 def read_gp_practices(path: Path, snapshot_date: str, source_version: str) -> tuple[pl.DataFrame, int]:
     """Read RO76 GP practices only; retain source role/status and raw postcode."""
+    try:
+        snapshot = date.fromisoformat(snapshot_date)
+    except ValueError as exc:
+        raise ValueError(f"ODS invalid source snapshot date {snapshot_date!r}") from exc
     rows: list[dict] = []
     source_rows = 0
     with path.open("r", encoding="utf-8-sig", newline="") as stream:
@@ -51,13 +55,15 @@ def read_gp_practices(path: Path, snapshot_date: str, source_version: str) -> tu
                 "postcode_compact": compact,
                 "open_date": _date(record[10]),
                 "close_date": _date(record[11]),
-                "source_snapshot_date": snapshot_date,
+                "source_snapshot_date": snapshot,
                 "source": "NHS England ODS DSE epraccur",
                 "source_version": source_version,
             })
     if not rows:
         raise ValueError("ODS epraccur contains no RO76 GP practice records")
-    table = pl.DataFrame(rows, infer_schema_length=None)
+    table = pl.DataFrame(rows, infer_schema_length=None, schema_overrides={
+        "open_date": pl.Date, "close_date": pl.Date, "source_snapshot_date": pl.Date,
+    })
     if table.get_column("org_code").n_unique() != table.height:
         raise ValueError("ODS epraccur has duplicate GP practice codes")
     return table.sort("org_code"), source_rows

@@ -8,6 +8,7 @@ import csv
 import io
 import re
 import zipfile
+from datetime import date
 from pathlib import Path
 
 import polars as pl
@@ -24,7 +25,7 @@ POSTCODE_SCHEMA = pa.schema([
     ("msoa_code", pa.string()), ("lad_code", pa.string()),
     ("pcon_code", pa.string()), ("pcon_name", pa.string()),
     ("easting", pa.int64()), ("northing", pa.int64()),
-    ("source_snapshot_date", pa.string()), ("source", pa.string()),
+    ("source_snapshot_date", pa.date32()), ("source", pa.string()),
     ("source_version", pa.string()),
 ])
 
@@ -62,6 +63,10 @@ def write_postcodes(
     snapshot_date: str, source_version: str, batch_size: int = 50_000,
 ) -> dict[str, int]:
     """Stream all NHSPD rows into a typed Parquet postcode dimension."""
+    try:
+        snapshot = date.fromisoformat(snapshot_date)
+    except ValueError as exc:
+        raise ValueError(f"NHSPD invalid source snapshot date {snapshot_date!r}") from exc
     names = dict(zip(pcon_names["pcon24cd"], pcon_names["pcon24nm"], strict=True))
     seen: set[str] = set()
     rows: list[dict] = []
@@ -125,7 +130,7 @@ def write_postcodes(
                         "pcon_name": names.get(code),
                         "easting": _int(record[36]),
                         "northing": _int(record[37]),
-                        "source_snapshot_date": snapshot_date,
+                        "source_snapshot_date": snapshot,
                         "source": "ONS NHS Postcode Directory",
                         "source_version": source_version,
                     })

@@ -1,11 +1,15 @@
 """Offline source and end-to-end tests using tiny official-layout fixtures."""
 
 import csv
+import json
 import zipfile
+from datetime import date
 from pathlib import Path
 
 import duckdb
 import polars as pl
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 import yaml
 from typer.testing import CliRunner
@@ -13,8 +17,8 @@ from typer.testing import CliRunner
 from nhs_geo_spine.build import app, build_pipeline
 from nhs_geo_spine.ingest_ons import read_lsoa_lookup
 from nhs_geo_spine.ingest_postcodes import read_pcon_names, write_postcodes
-from nhs_geo_spine.qa import audit_outputs
-from nhs_geo_spine.sources import fetch_sources, load_config
+from nhs_geo_spine.qa import audit_outputs, create_qa_report
+from nhs_geo_spine.sources import fetch_sources, load_config, sha256_file
 from nhs_geo_spine.transform import aggregate_gp_patients
 
 
@@ -96,6 +100,13 @@ def test_offline_build_and_qa(tmp_path: Path) -> None:
     assert report["patient_reconciliation"]["source_total"] == 36
     assert report["patient_reconciliation"]["unmapped_total"] == 1
     assert report["site_mapping"]["all_valid_active_misses"][0]["org_code"] == "A81003"
+    manifest = json.loads((processed / "build_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["qa_summary"]["valid_active_england_gp_mapping_rate"] == (
+        report["site_mapping"]["valid_active_england_gp_mapping_rate"]
+    )
+    assert manifest["qa_summary"]["threshold_99_percent_met"] == (
+        report["site_mapping"]["threshold_99_percent_met"]
+    )
     sites = pl.read_parquet(processed / "nhs_org_to_pcon.parquet")
     assert sites["mapping_method"].to_list() == [
         "postcode_direct", "postcode_to_lsoa_then_best_fit", "unmapped"
@@ -105,6 +116,26 @@ def test_offline_build_and_qa(tmp_path: Path) -> None:
         assert connection.execute("SELECT COUNT(*) FROM pcon_gp_patient_links").fetchone()[0] == 3
         assert connection.execute("SELECT COUNT(*) FROM gp_practice_pcon_profile").fetchone()[0] == 4
         assert connection.execute("SELECT COUNT(*) FROM pcon_nhs_organisations").fetchone()[0] == 2
+        for table, fields in (
+            ("dim_postcode", ("source_snapshot_date",)),
+            ("dim_nhs_organisation_site", ("open_date", "close_date", "source_snapshot_date")),
+            ("bridge_org_site_pcon", ("source_snapshot_date",)),
+        ):
+            for field in fields:
+                column_type = connection.execute(
+                    "SELECT data_type FROM information_schema.columns "
+                    "WHERE table_name = ? AND column_name = ?", [table, field]
+                ).fetchone()[0]
+                assert column_type == "DATE"
+    for filename, fields in (
+        ("postcode_spine.parquet", ("source_snapshot_date",)),
+        ("nhs_organisation_sites.parquet", ("open_date", "close_date", "source_snapshot_date")),
+        ("nhs_org_to_pcon.parquet", ("source_snapshot_date",)),
+    ):
+        schema = pq.read_schema(processed / filename)
+        for field in fields:
+            assert schema.field(field).type == pa.date32()
+    assert pl.read_parquet(processed / "postcode_spine.parquet")["source_snapshot_date"][0] == date(2026, 8, 31)
     assert (processed / "nhs_org_to_pcon.csv").exists()
     assert (processed / "gp_practice_patient_pcon.csv").exists()
     assert (processed / "gp_practice_source_totals.parquet").exists()
@@ -180,3 +211,74 @@ def test_qa_catches_practice_shift_even_when_global_total_matches(tmp_path: Path
     bridge.with_columns(pl.Series("patient_count", counts)).write_parquet(path)
     with pytest.raises(ValueError, match="practice-level reconciliation"):
         audit_outputs(processed)
+
+
+@pytest.mark.parametrize("fault, message", [
+    ("not_zip", "expected ZIP"),
+    ("missing_member", "missing expected member"),
+    ("bad_crc", "integrity check"),
+])
+def test_fetch_rejects_bad_zip_before_caching(tmp_path: Path, fault: str, message: str) -> None:
+    config_path, raw = _fixture_sources(tmp_path)
+    source = load_config(config_path)["nhs_postcode_directory"]
+    archive_path = Path(source.url.removeprefix("file://"))
+    if fault == "not_zip":
+        archive_path.write_bytes(b"not an archive")
+    elif fault == "missing_member":
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            archive.writestr(source.data_member, b"example")
+    else:
+        archive_path.write_bytes(archive_path.read_bytes().replace(b"SW1A 2AA", b"SW1A 2AZ", 1))
+    with pytest.raises(ValueError, match=message):
+        fetch_sources(load_config(config_path), raw)
+    assert not (raw / source.filename).exists()
+    ledger = json.loads((raw / "sources_manifest.json").read_text(encoding="utf-8"))
+    assert "nhs_postcode_directory" not in ledger["sources"]
+
+
+def test_fetch_revalidates_cached_zip(tmp_path: Path) -> None:
+    config_path, raw = _fixture_sources(tmp_path)
+    config = load_config(config_path)
+    fetch_sources(config, raw)
+    archive = raw / config["nhs_postcode_directory"].filename
+    archive.write_bytes(b"previously cached invalid archive")
+    ledger_path = raw / "sources_manifest.json"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger["sources"]["nhs_postcode_directory"]["sha256"] = sha256_file(archive)
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+    with pytest.raises(ValueError, match="expected ZIP"):
+        fetch_sources(config, raw)
+
+
+def test_99_percent_flag_uses_england_rate_when_wales_lifts_combined_rate() -> None:
+    england = "E00001"
+    welsh = [f"W{i:05d}" for i in range(100)]
+    sites = pl.DataFrame({"org_code": [england, *welsh]})
+    bridge = pl.DataFrame({
+        "org_code": [england, *welsh],
+        "status": ["ACTIVE"] * 101,
+        "postcode_compact": ["SW1A2AA"] + [f"CF101{i:02d}" for i in range(100)],
+        "postcode_raw": ["SW1A 2AA"] + ["CF10 1AA"] * 100,
+        "postcode": ["SW1A 2AA"] + ["CF10 1AA"] * 100,
+        "country_code": ["E92000001"] + ["W92000004"] * 100,
+        "pcon24cd": [None] + ["W07000001"] * 100,
+        "mapping_method": ["unmapped"] + ["postcode_direct"] * 100,
+        "unmapped_reason": ["no_direct_or_lsoa_geography"] + [None] * 100,
+        "org_role": ["RO76"] * 101,
+    })
+    patient = pl.DataFrame({
+        "practice_code": [england], "pcon24cd": ["E14001063"],
+        "patient_count": [10], "patient_share": [1.0],
+        "mapping_method": ["lsoa21_best_fit"],
+    })
+    unmapped = pl.DataFrame(schema={
+        "practice_code": pl.String, "patient_count": pl.Int64, "unmapped_reason": pl.String,
+    })
+    report = create_qa_report(
+        pl.DataFrame({"lsoa21cd": ["E01000001"], "pcon24cd_best_fit": ["E14001063"]}),
+        sites, bridge, patient, unmapped, 10,
+        pl.DataFrame({"pcon24cd": ["E14001063", "W07000001"]}), {},
+    )
+    assert report["site_mapping"]["valid_active_gp_mapping_rate"] > 0.99
+    assert report["site_mapping"]["valid_active_england_gp_mapping_rate"] == 0.0
+    assert report["site_mapping"]["threshold_99_percent_met"] is False

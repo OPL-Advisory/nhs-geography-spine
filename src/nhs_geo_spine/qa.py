@@ -96,6 +96,10 @@ def create_qa_report(
         "org_code", "postcode_raw", "postcode", "country_code", "unmapped_reason"
     ).to_dicts()
     mapping_rate = mapped_valid.height / valid_active.height if valid_active.height else None
+    england_mapping_rate = (
+        mapped_valid_england.height / valid_active_england.height
+        if valid_active_england.height else None
+    )
     unmapped_by_reason = unmapped.group_by("unmapped_reason").agg(
         pl.len().alias("rows"), pl.col("patient_count").sum().alias("patients")
     ).sort("unmapped_reason").to_dicts()
@@ -168,11 +172,8 @@ def create_qa_report(
             "valid_active_gp_mapping_rate": mapping_rate,
             "valid_active_england_gp_postcodes": valid_active_england.height,
             "mapped_valid_active_england_gp_postcodes": mapped_valid_england.height,
-            "valid_active_england_gp_mapping_rate": (
-                mapped_valid_england.height / valid_active_england.height
-                if valid_active_england.height else None
-            ),
-            "threshold_99_percent_met": mapping_rate is not None and mapping_rate >= 0.99,
+            "valid_active_england_gp_mapping_rate": england_mapping_rate,
+            "threshold_99_percent_met": england_mapping_rate is not None and england_mapping_rate >= 0.99,
             "all_valid_active_misses": misses,
             "mapping_by_org_role": role_rates,
             "top_unmapped_postcodes": top_postcodes,

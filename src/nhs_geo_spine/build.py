@@ -166,7 +166,9 @@ def build_pipeline(config_path: Path = DEFAULT_CONFIG, raw_dir: Path = DEFAULT_R
             "gp_practice_source_totals_rows": practice_source_totals.height,
         },
         "qa_summary": {"status": report["status"],
-                       "valid_active_gp_mapping_rate": report["site_mapping"]["valid_active_gp_mapping_rate"],
+                       "valid_active_england_gp_mapping_rate": report["site_mapping"][
+                           "valid_active_england_gp_mapping_rate"],
+                       "threshold_99_percent_met": report["site_mapping"]["threshold_99_percent_met"],
                        "patient_difference": report["patient_reconciliation"]["difference"]},
     }
     _write_json(processed_dir / "build_manifest.json", manifest)
@@ -189,7 +191,8 @@ def build(config: Path = typer.Option(DEFAULT_CONFIG), raw_dir: Path = typer.Opt
     """Build Parquet/CSV bridges, DuckDB, manifest and QA report."""
     report = build_pipeline(config, raw_dir, processed_dir, offline)
     typer.echo(f"Build {report['status']}: {report['patient_reconciliation']['bridge_total']} patients; "
-               f"{report['site_mapping']['valid_active_gp_mapping_rate']:.2%} valid active GP postcodes mapped")
+               f"{report['site_mapping']['valid_active_england_gp_mapping_rate']:.2%} "
+               "valid active England GP postcodes mapped")
 
 
 @app.command()

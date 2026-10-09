@@ -3,8 +3,10 @@
 import csv
 import io
 import zipfile
+from datetime import date
 from pathlib import Path
 
+import polars as pl
 import pytest
 
 from nhs_geo_spine.ingest_gp_patients import read_gp_patients
@@ -41,6 +43,11 @@ def test_ods_ro76_filter_retains_raw_role_and_postcode(tmp_path: Path) -> None:
     assert practices["org_role"].to_list() == ["RO76", "RO76|RO268"]
     assert practices["postcode_raw"][0] == " sw1a 2aa "
     assert practices["postcode"][0] == "SW1A 2AA"
+    assert practices.schema["open_date"] == pl.Date
+    assert practices.schema["close_date"] == pl.Date
+    assert practices.schema["source_snapshot_date"] == pl.Date
+    assert practices["open_date"][0] == date(2020, 1, 1)
+    assert practices["source_snapshot_date"][0] == date(2026, 10, 9)
 
 
 def test_gp_patient_adapter_rejects_wrong_sex_member(tmp_path: Path) -> None:

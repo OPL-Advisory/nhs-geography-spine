@@ -71,13 +71,19 @@ def sha256_file(path: Path) -> str:
 def _validate_download(path: Path, source: Source) -> None:
     if path.stat().st_size == 0:
         raise ValueError(f"{source.key}: empty download")
-    if path.suffix == ".zip":
+    if Path(source.filename).suffix.lower() == ".zip":
         if not zipfile.is_zipfile(path):
             raise ValueError(f"{source.key}: expected ZIP; upstream may have returned an error page")
-        with zipfile.ZipFile(path) as archive:
-            for member in (source.data_member, source.pcon_member):
-                if member and member not in archive.namelist():
-                    raise ValueError(f"{source.key}: ZIP is missing expected member {member}")
+        try:
+            with zipfile.ZipFile(path) as archive:
+                for member in (source.data_member, source.pcon_member):
+                    if member and member not in archive.namelist():
+                        raise ValueError(f"{source.key}: ZIP is missing expected member {member}")
+                corrupt_member = archive.testzip()
+        except (zipfile.BadZipFile, EOFError) as exc:
+            raise ValueError(f"{source.key}: invalid ZIP archive") from exc
+        if corrupt_member:
+            raise ValueError(f"{source.key}: ZIP member failed integrity check: {corrupt_member}")
     else:
         with path.open("rb") as stream:
             head = stream.read(128).lstrip().lower()
@@ -127,6 +133,7 @@ def fetch_sources(config: dict[str, Source], raw_dir: Path, refresh: bool = Fals
             and old.get("sha256") == sha256_file(path)
         )
         if cached:
+            _validate_download(path, source)
             continue
         temporary = raw_dir / (source.filename + ".partial")
         try:
