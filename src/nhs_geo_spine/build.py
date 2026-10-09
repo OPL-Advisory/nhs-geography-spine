@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import duckdb
 import polars as pl
@@ -15,13 +16,20 @@ from .ingest_ods import read_gp_practices
 from .ingest_ons import read_lsoa_lookup
 from .ingest_postcodes import read_pcon_names, write_postcodes
 from .qa import audit_outputs, create_qa_report
-from .sources import fetch_sources, load_config, verified_sources
+from .sources import Source, fetch_sources, load_config, verified_sources
 from .transform import aggregate_gp_patients, map_sites
 
 app = typer.Typer(no_args_is_help=True)
 DEFAULT_CONFIG = Path("config/sources.yml")
 DEFAULT_RAW = Path("data/raw")
 DEFAULT_PROCESSED = Path("data/processed")
+BUILD_OUTPUTS = (
+    "lsoa21_pcon24.parquet", "pcon24.parquet", "nhs_organisation_sites.parquet",
+    "postcode_spine.parquet", "nhs_org_to_pcon.parquet", "nhs_org_to_pcon.csv",
+    "gp_practice_source_totals.parquet", "gp_practice_patient_pcon.parquet",
+    "gp_practice_patient_pcon.csv", "gp_patient_unmapped_lsoa.parquet",
+    "qa_report.json", "nhs_geography.duckdb",
+)
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -110,6 +118,21 @@ def build_pipeline(config_path: Path = DEFAULT_CONFIG, raw_dir: Path = DEFAULT_R
         fetch_sources(config, raw_dir)
     ledger = verified_sources(config, raw_dir)
     processed_dir.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix=".build-", dir=processed_dir) as temporary:
+        stage = Path(temporary)
+        report = _build_bundle(config, ledger, raw_dir, stage)
+        missing = [name for name in (*BUILD_OUTPUTS, "build_manifest.json") if not (stage / name).is_file()]
+        if missing:
+            raise RuntimeError(f"Staged build is missing outputs: {missing}")
+        for name in BUILD_OUTPUTS:
+            (stage / name).replace(processed_dir / name)
+        (stage / "build_manifest.json").replace(processed_dir / "build_manifest.json")
+    return report
+
+
+def _build_bundle(config: dict[str, Source], ledger: dict, raw_dir: Path,
+                  processed_dir: Path) -> dict:
+    """Produce a complete bundle in an unpublished staging directory."""
     source = ledger["sources"]
     ons = read_lsoa_lookup(raw_dir / config["ons_lsoa21_pcon24"].filename,
                            config["ons_lsoa21_pcon24"].source_version)

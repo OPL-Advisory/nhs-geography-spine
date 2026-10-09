@@ -127,6 +127,12 @@ def test_offline_build_and_qa(tmp_path: Path) -> None:
                     "WHERE table_name = ? AND column_name = ?", [table, field]
                 ).fetchone()[0]
                 assert column_type == "DATE"
+        for table in ("dim_nhs_organisation_site", "bridge_org_site_pcon"):
+            column_type = connection.execute(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_name = ? AND column_name = 'site_code'", [table]
+            ).fetchone()[0]
+            assert column_type == "VARCHAR"
     for filename, fields in (
         ("postcode_spine.parquet", ("source_snapshot_date",)),
         ("nhs_organisation_sites.parquet", ("open_date", "close_date", "source_snapshot_date")),
@@ -135,6 +141,10 @@ def test_offline_build_and_qa(tmp_path: Path) -> None:
         schema = pq.read_schema(processed / filename)
         for field in fields:
             assert schema.field(field).type == pa.date32()
+    for filename, field in (("nhs_organisation_sites.parquet", "parent_org_code"),
+                            ("nhs_org_to_pcon.parquet", "site_code")):
+        dtype = pq.read_schema(processed / filename).field(field).type
+        assert pa.types.is_string(dtype) or pa.types.is_large_string(dtype)
     assert pl.read_parquet(processed / "postcode_spine.parquet")["source_snapshot_date"][0] == date(2026, 8, 31)
     assert (processed / "nhs_org_to_pcon.csv").exists()
     assert (processed / "gp_practice_patient_pcon.csv").exists()
@@ -211,6 +221,27 @@ def test_qa_catches_practice_shift_even_when_global_total_matches(tmp_path: Path
     bridge.with_columns(pl.Series("patient_count", counts)).write_parquet(path)
     with pytest.raises(ValueError, match="practice-level reconciliation"):
         audit_outputs(processed)
+
+
+def test_failed_late_rebuild_keeps_previous_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_path, raw = _fixture_sources(tmp_path)
+    config = load_config(config_path)
+    fetch_sources(config, raw)
+    processed = tmp_path / "processed"
+    build_pipeline(config_path, raw, processed, offline=True)
+    previous = {path.name: sha256_file(path) for path in processed.iterdir() if path.is_file()}
+    ods_source = Path(config["ods_gp_practices"].url.removeprefix("file://"))
+    ods_source.write_text(ods_source.read_text().replace("Practice A81001", "Changed practice", 1))
+    fetch_sources(config, raw, refresh=True)
+
+    def fail_patient_adapter(*_args: object) -> None:
+        raise ValueError("late patient adapter failure")
+
+    monkeypatch.setattr("nhs_geo_spine.build.read_gp_patients", fail_patient_adapter)
+    with pytest.raises(ValueError, match="late patient adapter failure"):
+        build_pipeline(config_path, raw, processed, offline=True)
+    assert {path.name: sha256_file(path) for path in processed.iterdir() if path.is_file()} == previous
+    assert not list(processed.glob(".build-*"))
 
 
 @pytest.mark.parametrize("fault, message", [

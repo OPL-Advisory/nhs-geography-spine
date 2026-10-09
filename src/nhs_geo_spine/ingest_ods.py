@@ -62,6 +62,10 @@ def read_gp_practices(path: Path, snapshot_date: str, source_version: str) -> tu
     if not rows:
         raise ValueError("ODS epraccur contains no RO76 GP practice records")
     table = pl.DataFrame(rows, infer_schema_length=None, schema_overrides={
+        "site_code": pl.String, "parent_org_code": pl.String,
+        "operating_org_code": pl.String, "commissioner_code": pl.String,
+        "address_line_1": pl.String, "town": pl.String,
+        "postcode": pl.String, "postcode_compact": pl.String,
         "open_date": pl.Date, "close_date": pl.Date, "source_snapshot_date": pl.Date,
     })
     if table.get_column("org_code").n_unique() != table.height:

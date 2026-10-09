@@ -46,6 +46,9 @@ def test_ods_ro76_filter_retains_raw_role_and_postcode(tmp_path: Path) -> None:
     assert practices.schema["open_date"] == pl.Date
     assert practices.schema["close_date"] == pl.Date
     assert practices.schema["source_snapshot_date"] == pl.Date
+    for field in ("site_code", "parent_org_code", "operating_org_code", "commissioner_code",
+                  "address_line_1", "town"):
+        assert practices.schema[field] == pl.String
     assert practices["open_date"][0] == date(2020, 1, 1)
     assert practices["source_snapshot_date"][0] == date(2026, 10, 9)
 
