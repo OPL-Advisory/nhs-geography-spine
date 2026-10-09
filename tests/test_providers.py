@@ -13,7 +13,13 @@ from typer.testing import CliRunner
 from nhs_geo_spine.build import app, build_pipeline
 from nhs_geo_spine.ingest_providers import read_icb_codes
 from nhs_geo_spine.qa import audit_outputs, create_provider_qa
-from nhs_geo_spine.sources import fetch_sources, load_config, sha256_file
+from nhs_geo_spine.sources import (
+    CORE_SOURCE_KEYS,
+    fetch_sources,
+    load_config,
+    sha256_file,
+    verified_sources,
+)
 
 
 def _report(code: str, name: str, postcode: str, *, parent: str = "",
@@ -48,6 +54,7 @@ def _provider_fixture(tmp_path: Path) -> tuple[Path, Path]:
         ]),
         "ods_sub_icb_sites": ("eccgsite", [
             _report("C00001", "Sub ICB site", "SW1A 2AC", parent="00A"),
+            _report("C00002", "Mapped Sub ICB site", "SW1A 2AA", parent="00A"),
         ]),
     }
     for key, (report, rows) in reports.items():
@@ -75,13 +82,13 @@ def test_provider_build_preserves_gp_and_patient_outputs(tmp_path: Path) -> None
     assert report["patient_reconciliation"]["source_total"] == 36
     assert report["patient_reconciliation"]["difference"] == 0
     assert pl.read_parquet(processed / "nhs_organisation_sites.parquet").height == 3
-    assert pl.read_parquet(processed / "all_nhs_organisation_sites.parquet").height == 10
+    assert pl.read_parquet(processed / "all_nhs_organisation_sites.parquet").height == 11
     assert pl.read_parquet(processed / "nhs_org_to_pcon.parquet").height == 3
     expanded = pl.read_parquet(processed / "all_nhs_organisation_sites.parquet")
     assert expanded.filter(pl.col("org_code") == "00A")["org_role"][0] == "RO98|RO319"
     assert expanded.filter(pl.col("org_code") == "R00001")["org_role"][0] == "RO197"
-    assert report["provider_coverage"]["re6_relationships"] == 4
-    assert report["provider_coverage"]["resolved_re6_relationships"] == 3
+    assert report["provider_coverage"]["re6_relationships"] == 5
+    assert report["provider_coverage"]["resolved_re6_relationships"] == 4
     assert report["provider_coverage"]["unresolved_re6_relationships"][0]["parent_org_code"] == "Y00001"
     coverage = {row["organisation_type"]: row for row in report["provider_coverage"][
         "by_organisation_type"]}
@@ -97,7 +104,7 @@ def test_provider_build_preserves_gp_and_patient_outputs(tmp_path: Path) -> None
     with duckdb.connect(str(processed / "nhs_geography.duckdb"), read_only=True) as connection:
         assert connection.execute("SELECT COUNT(*) FROM gp_practice_pcon_profile").fetchone()[0] == 4
         assert connection.execute("SELECT COUNT(*) FROM pcon_gp_patient_links").fetchone()[0] == 3
-        assert connection.execute("SELECT COUNT(*) FROM pcon_nhs_organisations").fetchone()[0] == 8
+        assert connection.execute("SELECT COUNT(*) FROM pcon_nhs_organisations").fetchone()[0] == 9
         parent = connection.execute("""
             SELECT parent_org_code, parent_org_name, parent_organisation_type,
                    parent_address_pcon24cd, relationship_type, geography_basis
@@ -116,11 +123,23 @@ def test_provider_build_preserves_gp_and_patient_outputs(tmp_path: Path) -> None
             SELECT organisation_codes FROM pcon_provider_summary
             WHERE pcon24cd = 'E14001063' AND organisation_type = 'gp_branch_surgery'
         """).fetchone()[0] == 2
+        for organisation_type in ("integrated_care_board", "sub_icb_location",
+                                  "sub_icb_location_site"):
+            assert connection.execute("""
+                SELECT organisation_codes FROM pcon_provider_summary
+                WHERE pcon24cd = 'E14001063' AND organisation_type = ?
+            """, [organisation_type]).fetchone()[0] == 1
         assert connection.execute("""
             SELECT parent_org_code, parent_org_name FROM pcon_nhs_organisations
             WHERE org_code = 'B00002'
         """).fetchone() == ("Y00001", None)
-    assert audit_outputs(processed)["provider_coverage"]["organisations"] == 10
+    assert audit_outputs(processed)["provider_coverage"]["organisations"] == 11
+    for suffix in ("csv", "parquet"):
+        path = processed / f"pcon_provider_summary.{suffix}"
+        summary = pl.read_csv(path) if suffix == "csv" else pl.read_parquet(path)
+        assert set(summary["organisation_type"].to_list()) >= {
+            "integrated_care_board", "sub_icb_location", "sub_icb_location_site"
+        }
     exported = tmp_path / "exports"
     result = CliRunner().invoke(app, ["export", "--format", "csv", "--processed-dir",
                                      str(processed), "--output-dir", str(exported)])
@@ -184,3 +203,63 @@ def test_provider_qa_rejects_wrong_operator_type(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="unexpected organisation type"):
         create_provider_qa(orgs, pl.read_parquet(processed / "all_nhs_org_to_pcon.parquet"),
                            pl.read_parquet(processed / "pcon24.parquet"))
+
+
+def test_eccg_proxy_role_is_classified_and_combination_preserved(tmp_path: Path) -> None:
+    config_path, raw = _provider_fixture(tmp_path)
+    config = load_config(config_path)
+    source = Path(config["ods_sub_icb_locations"].url.removeprefix("file://"))
+    source.write_bytes(_csv([
+        _report("00A", "Sub ICB location", "SW1A 2AA", non_primary="RO319"),
+        _report("00P", "ICB commissioning proxy", "SW1A 2AA", non_primary="RO326"),
+        _report("00B", "Location with proxy role", "SW1A 2AA", non_primary="RO319|RO326"),
+        _report("00R", "Reporting entity", "SW1A 2AA", non_primary="RO327"),
+        _report("00H", "Commissioning hub", "SW1A 2AA", non_primary="RO218"),
+        _report("00C", "Former CCG", "SW1A 2AA"),
+    ]))
+    fetch_sources(config, raw)
+    processed = tmp_path / "processed"
+    build_pipeline(config_path, raw, processed, offline=True)
+    rows = {row["org_code"]: row for row in pl.read_parquet(
+        processed / "all_nhs_organisation_sites.parquet").to_dicts()}
+    assert rows["00P"]["organisation_type"] == "icb_commissioning_proxy"
+    assert rows["00P"]["non_primary_role_ids"] == "RO326"
+    assert rows["00B"]["organisation_type"] == "sub_icb_location"
+    assert rows["00B"]["non_primary_role_ids"] == "RO319|RO326"
+    assert rows["00R"]["organisation_type"] == "sub_icb_reporting_entity"
+    assert rows["00H"]["organisation_type"] == "commissioning_hub"
+    assert rows["00C"]["organisation_type"] == "former_clinical_commissioning_group"
+
+
+@pytest.mark.parametrize("role", ["RO999", "RO319|RO999", "RO319|"])
+def test_eccg_unexpected_role_fails_loudly(tmp_path: Path, role: str) -> None:
+    config_path, raw = _provider_fixture(tmp_path)
+    config = load_config(config_path)
+    source = Path(config["ods_sub_icb_locations"].url.removeprefix("file://"))
+    source.write_bytes(_csv([_report("00X", "Unexpected role", "SW1A 2AA",
+                                    non_primary=role)]))
+    fetch_sources(config, raw)
+    with pytest.raises(ValueError, match="eccg has (unexpected|malformed) non-primary roles.*00X"):
+        build_pipeline(config_path, raw, tmp_path / "processed", offline=True)
+
+
+def test_core_build_uses_only_configured_provenance_from_shared_cache(tmp_path: Path) -> None:
+    full_config_path, raw = _provider_fixture(tmp_path)
+    full_config = load_config(full_config_path)
+    fetch_sources(full_config, raw)
+    ledger_path = raw / "sources_manifest.json"
+    full_ledger = ledger_path.read_bytes()
+    core_path = tmp_path / "core-sources.yml"
+    source_yaml = yaml.safe_load(full_config_path.read_text(encoding="utf-8"))
+    core_path.write_text(yaml.safe_dump({key: source_yaml[key] for key in CORE_SOURCE_KEYS}),
+                         encoding="utf-8")
+    core_config = load_config(core_path)
+    assert set(fetch_sources(core_config, raw)["sources"]) == set(CORE_SOURCE_KEYS)
+    assert set(verified_sources(core_config, raw)["sources"]) == set(CORE_SOURCE_KEYS)
+    processed = tmp_path / "processed"
+    build_pipeline(core_path, raw, processed, offline=True)
+    manifest = json.loads((processed / "build_manifest.json").read_text(encoding="utf-8"))
+    assert set(manifest["sources"]) == set(CORE_SOURCE_KEYS)
+    assert pl.read_parquet(processed / "all_nhs_organisation_sites.parquet").height == 3
+    assert ledger_path.read_bytes() == full_ledger
+    assert set(json.loads(full_ledger)["sources"]) == set(full_config)

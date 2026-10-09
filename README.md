@@ -40,13 +40,13 @@ The frozen source configuration is [config/sources.yml](config/sources.yml). Sou
 | `gp_practice_patient_pcon.parquet` and `.csv` | Practice by constituency registered-patient count and share of the practice list. `UNMAPPED` is an explicit bucket, not a PCON code. Every row records `lsoa21_best_fit` as the attempted method. |
 | `gp_patient_unmapped_lsoa.parquet` | Original practice/LSOA rows that could not be allocated, with reason. |
 | `gp_practice_source_totals.parquet` | Source total for each practice, retained for independent practice-level QA. |
-| `pcon_nhs_organisations`, `pcon_provider_summary`, `organisation_pcon_profile` `.parquet` and `.csv` | Parliamentary location exports. The first includes an operating parent's name, type and address constituency when its code is present; the second counts mapped active provider codes by type; the third retains mapped and unmapped organisation profiles. |
+| `pcon_nhs_organisations`, `pcon_provider_summary`, `organisation_pcon_profile` `.parquet` and `.csv` | Parliamentary location exports. The first includes an operating parent's name, type and address constituency when its code is present; the second counts mapped active provider and commissioner codes by type; the third retains mapped and unmapped organisation profiles. |
 | `nhs_geography.duckdb` | The v0.1 dimensions, GP and patient bridges and views, plus expanded dimensions and the three parliamentary location views above. |
 | `build_manifest.json`, `qa_report.json` | Input URLs, versions, retrieval times, SHA-256 hashes, row counts, conservation checks and mapping warnings. |
 
 The `pcon_gp_patient_links` view's constituency share denominator is the mapped registered patients in that constituency **in this source file**. It is not a census population estimate. The practice profile's outside-address share uses the full source practice list, including the explicit unmapped bucket in the denominator.
 
-`pcon_provider_summary` counts ODS codes, not distinct premises or hospitals. `organisation_pcon_profile` is an **address** profile, not a patient or service catchment. The existing GP-only files and patient views retain their v0.1 meaning. Source report semantics, coverage by type and known limits are in [docs/SOURCES.md](docs/SOURCES.md).
+`pcon_provider_summary` includes all active mapped types in `pcon_nhs_organisations`, including ICB and Sub ICB commissioner codes. It counts ODS codes, not distinct premises or hospitals. `organisation_pcon_profile` is an **address** profile, not a patient or service catchment. The existing GP-only files and patient views retain their v0.1 meaning. Source report semantics, coverage by type and known limits are in [docs/SOURCES.md](docs/SOURCES.md).
 
 ## Verified October 2026 build
 
@@ -56,8 +56,8 @@ The source **ALL-persons CSV** contains 63,436,502 patients. The bridge conserve
 
 The report and manifest for a fresh run are generated locally; the numbers above describe the verified 9 October snapshot and will change after refresh.
 
-## v0.2 real-source acceptance, 9 October 2026
+## v0.2 real-source acceptance, 9 October 2026 UTC
 
-The new ODS reports yielded 6,634 branch codes, 274 trusts, 46,388 trust-site codes, 321 Sub ICB unit codes and 2,189 Sub ICB location sites. The ONS April 2026 code set selected all 36 current ICBs from 1,089 mixed `eother` records. With the unchanged 8,193 GP practice records, the expanded dimension has 64,035 unique ODS codes. Of the active records, 45,937 have a direct PCON24 postcode mapping; there were no LSOA fallbacks. Four active trust-site codes have Isle of Man or Channel Islands postcodes with no PCON24 allocation and remain explicit unmapped rows. Every valid active England postcode in the included active types mapped.
+The new ODS reports yielded 6,634 branch codes, 274 trusts, 46,388 trust-site codes, 321 Sub ICB unit codes and 2,189 Sub ICB location sites. The ONS April 2026 code set selected all 36 current ICBs from 1,089 mixed `eother` records. With the unchanged 8,193 GP practice records, the expanded dimension has 64,035 unique ODS codes. Of the active records, 45,937 have a direct PCON24 postcode mapping; there were no LSOA fallbacks. The parliamentary provider and commissioner summary contains 2,241 constituency-by-type rows. Four active trust-site codes have Isle of Man or Channel Islands postcodes with no PCON24 allocation and remain explicit unmapped rows. Every valid active England postcode in the included active types mapped.
 
 There are 55,211 explicit RE6 operating links in the expanded reports; 55,142 resolve to a code in this dimension. The remaining 69 are GP branch links, 47 of them active, to prescribing cost centre codes outside the selected RO76 GP practice set. Their source parent codes are retained and reported; no parent is guessed. Another 15 active branches point to GP records marked `DORMANT` by `epraccur` and are flagged for review. The patient bridge still reconciles 63,436,502 people exactly, including 105,638 in the v0.1 unmapped bucket.

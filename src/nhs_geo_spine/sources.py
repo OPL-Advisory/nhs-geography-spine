@@ -167,7 +167,7 @@ def fetch_sources(config: dict[str, Source], raw_dir: Path, refresh: bool = Fals
             "raw_path": str(path),
         }
         _write_json(ledger_path, {"sources": records})
-    return {"sources": records}
+    return {"sources": {key: records[key] for key in config}}
 
 
 def verified_sources(config: dict[str, Source], raw_dir: Path) -> dict:
@@ -186,4 +186,4 @@ def verified_sources(config: dict[str, Source], raw_dir: Path) -> dict:
         if source.source_date != "retrieval" and record.get("source_date") != source.source_date:
             raise ValueError(f"{key}: cached source date changed; run `nhs-geo fetch`")
         _validate_download(path, source)
-    return ledger
+    return {"sources": {key: ledger["sources"][key] for key in config}}

@@ -102,8 +102,6 @@ def _create_duckdb(processed: Path) -> None:
                    COUNT(DISTINCT org_code) AS organisation_codes,
                    'site_postcode' AS geography_basis
             FROM pcon_nhs_organisations
-            WHERE organisation_type IN ('gp_practice', 'gp_branch_surgery',
-                                        'nhs_trust', 'nhs_trust_site')
             GROUP BY pcon24cd, pcon24nm, organisation_type
         """)
         connection.execute("""

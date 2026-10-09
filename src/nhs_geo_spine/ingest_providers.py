@@ -53,14 +53,23 @@ def read_icb_codes(path: Path) -> pl.DataFrame:
 
 
 def _sub_icb_type(non_primary_roles: str) -> str:
-    roles = set(non_primary_roles.split("|"))
-    if "RO319" in roles:
-        return "sub_icb_location"
-    if "RO327" in roles:
-        return "sub_icb_reporting_entity"
-    if "RO218" in roles:
-        return "commissioning_hub"
-    return "former_clinical_commissioning_group"
+    """Classify only explicitly supported RO98 non-primary role sets."""
+    if not non_primary_roles:
+        return "former_clinical_commissioning_group"
+    parts = non_primary_roles.split("|")
+    roles = frozenset(parts)
+    known = {
+        frozenset({"RO319"}): "sub_icb_location",
+        frozenset({"RO319", "RO326"}): "sub_icb_location",
+        frozenset({"RO327"}): "sub_icb_reporting_entity",
+        frozenset({"RO218"}): "commissioning_hub",
+        frozenset({"RO326"}): "icb_commissioning_proxy",
+    }
+    if "" in parts or len(roles) != len(parts):
+        raise ValueError(f"ODS eccg has malformed non-primary roles: {non_primary_roles!r}")
+    if roles not in known:
+        raise ValueError(f"ODS eccg has unexpected non-primary roles: {non_primary_roles!r}")
+    return known[roles]
 
 
 def _read_report(path: Path, report: Report, snapshot_date: str, source_version: str,
@@ -90,8 +99,13 @@ def _read_report(path: Path, report: Report, snapshot_date: str, source_version:
                 raise ValueError(f"ODS {report.name} missing RE6 operator at row {line}")
             non_primary = ("RO318" if report.name == "eother" else
                            record[13].strip() or None)
-            org_type = (_sub_icb_type(non_primary or "") if report.name == "eccg"
-                        else report.organisation_type)
+            if report.name == "eccg":
+                try:
+                    org_type = _sub_icb_type(non_primary or "")
+                except ValueError as exc:
+                    raise ValueError(f"{exc} at row {line} ({code})") from exc
+            else:
+                org_type = report.organisation_type
             postcode, compact = normalise_postcode(record[9])
             rows.append({
                 "org_code": code,
