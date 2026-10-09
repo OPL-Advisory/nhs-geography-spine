@@ -125,14 +125,16 @@ def create_qa_report(
     )
     address_shares = with_address.group_by("practice_code", "address_pcon24cd").agg(
         pl.col("patient_share").filter(pl.col("pcon24cd") == pl.col("address_pcon24cd")).sum()
-        .alias("address_patient_share")
+        .alias("address_patient_share"),
+        pl.col("patient_share").filter(pl.col("pcon24cd") != pl.col("address_pcon24cd")).sum()
+        .alias("outside_address_patient_share"),
     )
     low_address = address_shares.filter(
         pl.col("address_pcon24cd").is_not_null() & (pl.col("address_patient_share") < 0.10)
     ).sort("address_patient_share").to_dicts()
     address_shares_known = address_shares.filter(pl.col("address_pcon24cd").is_not_null())
-    outside = (1 - value for value in address_shares_known["address_patient_share"].to_list())
-    outside_values = [float(x) for x in outside]
+    outside_values = [float(value) for value in address_shares_known[
+        "outside_address_patient_share"].to_list()]
     served = patient_bridge.filter(pl.col("pcon24cd") != "UNMAPPED").group_by("practice_code").agg(
         pl.col("pcon24cd").n_unique().alias("constituencies")
     )
@@ -142,6 +144,7 @@ def create_qa_report(
         active = group.filter(pl.col("status") == "ACTIVE")
         role_rates.append({"org_role": role[0], "active_sites": active.height,
                            "mapped_active_sites": active.filter(pl.col("pcon24cd").is_not_null()).height})
+    role_rates.sort(key=lambda row: row["org_role"])
     top_postcodes = active_sites.filter(pl.col("pcon24cd").is_null()).group_by("postcode_raw").agg(
         pl.len().alias("sites")
     ).sort("sites", descending=True).head(20).to_dicts()

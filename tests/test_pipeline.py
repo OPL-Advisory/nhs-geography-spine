@@ -296,7 +296,7 @@ def test_unknown_postcode_country_makes_england_acceptance_indeterminate() -> No
         "pcon24cd": ["E14001063", None],
         "mapping_method": ["postcode_direct", "unmapped"],
         "unmapped_reason": [None, "absent_from_postcode_directory"],
-        "org_role": ["RO76", "RO76"],
+        "org_role": ["RO76|RO268", "RO76"],
     })
     patient = pl.DataFrame({
         "practice_code": ["E00001"], "pcon24cd": ["E14001063"],
@@ -318,6 +318,36 @@ def test_unknown_postcode_country_makes_england_acceptance_indeterminate() -> No
     assert mapping["england_rate_unavailable_reason"] == "unknown_country_for_valid_active_gp_postcodes"
     assert mapping["threshold_99_percent_met"] is None
     assert mapping["all_valid_active_misses"][0]["org_code"] == "X00001"
+    assert [row["org_role"] for row in mapping["mapping_by_org_role"]] == ["RO76", "RO76|RO268"]
+
+
+def test_outside_address_share_excludes_unmapped_patients() -> None:
+    sites = pl.DataFrame({"org_code": ["E00001"]})
+    site_bridge = pl.DataFrame({
+        "org_code": ["E00001"], "status": ["ACTIVE"],
+        "postcode_compact": ["SW1A2AA"], "postcode_raw": ["SW1A 2AA"],
+        "postcode": ["SW1A 2AA"], "country_code": ["E92000001"],
+        "pcon24cd": ["E14001063"], "mapping_method": ["postcode_direct"],
+        "unmapped_reason": [None], "org_role": ["RO76"],
+    })
+    patient = pl.DataFrame({
+        "practice_code": ["E00001", "E00001"],
+        "pcon24cd": ["E14001063", "UNMAPPED"],
+        "patient_count": [10, 90], "patient_share": [0.1, 0.9],
+        "mapping_method": ["lsoa21_best_fit", "lsoa21_best_fit"],
+    })
+    unmapped = pl.DataFrame({
+        "practice_code": ["E00001"], "patient_count": [90],
+        "unmapped_reason": ["outside_ew_lsoa21_coverage"],
+    })
+    report = create_qa_report(
+        pl.DataFrame({"lsoa21cd": ["E01000001"], "pcon24cd_best_fit": ["E14001063"]}),
+        sites, site_bridge, patient, unmapped, 100,
+        pl.DataFrame({"pcon24cd": ["E14001063"]}), {},
+    )
+    assert report["patient_reconciliation"]["unmapped_total"] == 90
+    assert report["patient_distribution"]["median_share_outside_address_pcon"] == 0.0
+    assert report["patient_distribution"]["p90_share_outside_address_pcon"] == 0.0
 
 
 def test_wales_only_build_reports_unavailable_england_rate(tmp_path: Path) -> None:
