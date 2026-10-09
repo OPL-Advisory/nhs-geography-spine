@@ -1,0 +1,32 @@
+# Frozen public sources verified on 2026-10-09. Update deliberately for a new release.
+ons_lsoa21_pcon24:
+  url: https://open-geography-portalx-ons.hub.arcgis.com/api/download/v1/items/fcb6546344194e55bd60e0b583fb8564/csv?layers=0
+  filename: lsoa21_pcon24.csv
+  source_version: LSOA21 to PCON July 2024 best-fit lookup
+  source_date: '2025-09-16'
+  source_date_kind: ArcGIS item created; geography vintage July 2024
+  publisher: Office for National Statistics
+ods_gp_practices:
+  url: https://www.odsdatasearchandexport.nhs.uk/api/getReport?report=epraccur
+  filename: ods_epraccur.csv
+  source_version: DSE epraccur predefined report (nightly retrieval snapshot)
+  source_date: retrieval
+  source_date_kind: DSE report retrieval date
+  publisher: NHS England Organisation Data Service
+nhs_postcode_directory:
+  url: https://www.arcgis.com/sharing/rest/content/items/55d0b9a92ed940f887dfd9a9402be0c8/data
+  filename: nhspd_aug2026.zip
+  source_version: NHS Postcode Directory full, August 2026
+  source_date: '2026-08-19'
+  source_date_kind: ArcGIS item created; directory vintage August 2026
+  publisher: Office for National Statistics
+  data_member: Data/nhg26aug.csv
+  pcon_member: Documents/Names and Codes/Westminster Parliamentary Constituency names and codes UK as at 12_24.csv
+gp_registered_patients_lsoa:
+  url: https://files.digital.nhs.uk/93/C90730/gp-reg-pat-prac-lsoa-male-female-July-26.zip
+  filename: gp_patients_lsoa_july2026.zip
+  source_version: Patients Registered at a GP Practice, July 2026, LSOA 2021 all persons
+  source_date: '2026-07-01'
+  source_date_kind: GP patient extract date
+  publisher: NHS England
+  data_member: gp-reg-pat-prac-lsoa-all.csv
