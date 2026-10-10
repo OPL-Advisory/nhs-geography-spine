@@ -7,7 +7,7 @@ packages = ["src/nhs_geo_spine"]
 
 [project]
 name = "nhs-geography-spine"
-version = "0.3.0"
+version = "0.4.0"
 description = "Versioned NHS organisation and population geography mappings to UK parliamentary constituencies"
 requires-python = ">=3.12"
 dependencies = [
