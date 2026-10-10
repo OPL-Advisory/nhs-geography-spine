@@ -28,7 +28,7 @@ The local 10 October 2026 accepted-source candidate contains 650 constituency pa
 | Two lazy search indexes, gzip sum | 659 KB | ≤ 800 KB |
 | Largest single constituency detail | 604 KB uncompressed | ≤ 1 MB |
 | Largest single organisation detail | 98 KB uncompressed | ≤ 250 KB |
-| Whole site | 225 MB uncompressed / 22.8 MB `.tar.gz` | ≤ 30 MB archive |
+| Whole site | 233 MB file bytes / 22.9 MB `.tar.gz` | ≤ 30 MB archive |
 | Static detail objects | 64,690 | Hosting file-count and upload-time gate **not yet exercised** |
 
 These are candidate budgets, not a hosting or accessibility certification. The many small detail files are a deployment concern; test host file count, upload time, caching and 404 handling in a separate preview before selecting a platform. If this exceeds host limits, revise packaging while retaining lazy record fetches and exact per-code routes. The single search request is ~659 KB compressed and may be noticeable on slow mobile links; measure it in a network-throttled preview before production approval.
