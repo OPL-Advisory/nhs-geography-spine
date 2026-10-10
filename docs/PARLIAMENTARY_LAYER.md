@@ -60,7 +60,7 @@ nhs-geo build --offline
 nhs-geo qa
 ```
 
-The snapshot date and retrieval timestamp are visible in the member dimension, manifest and parliamentary QA. The MP shown is **current as of that snapshot**, not necessarily the MP at the older GP patient extract date or ODS source date. A later member refresh changes the association without rewriting historical patient counts. `nhs-geo qa` validates the saved tables and JSON coverage offline. The build captures its Git SHA and dirty state before creating staging files, including when `--processed-dir` is a custom path inside the repository.
+The snapshot date and retrieval timestamp are visible in the member dimension, manifest and parliamentary QA. The MP shown is **current as of that snapshot**, not necessarily the MP at the older GP patient extract date or ODS source date. A later member refresh changes the association without rewriting historical patient counts. `nhs-geo qa` parses every saved constituency and organisation JSON file and compares its full payload, including member/vacancy, summary, profile and relationship fields, with the validated Parquet rows. Malformed, missing, extra or stale JSON fails QA offline. The build captures its Git SHA and dirty state before creating staging files, including when `--processed-dir` is a custom path inside the repository.
 
 ## Limits
 

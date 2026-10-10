@@ -231,6 +231,76 @@ def test_saved_output_qa_catches_profile_patient_loss(tmp_path: Path) -> None:
         audit_outputs(processed)
 
 
+@pytest.mark.parametrize("kind,code", [
+    ("constituencies", "E14001063"),
+    ("organisations", "A81001"),
+])
+def test_saved_output_qa_rejects_malformed_json(tmp_path: Path, kind: str, code: str) -> None:
+    _, _, _, processed = _build(tmp_path)
+    path = processed / "json" / kind / f"{code}.json"
+    path.write_text('{"truncated":', encoding="utf-8")
+    with pytest.raises(ValueError, match=rf"Invalid parliamentary JSON at .*{code}\.json"):
+        audit_outputs(processed)
+
+
+@pytest.mark.parametrize("kind", ["constituencies", "organisations"])
+def test_saved_output_qa_rejects_swapped_json(tmp_path: Path, kind: str) -> None:
+    _, _, _, processed = _build(tmp_path)
+    first, second = sorted((processed / "json" / kind).glob("*.json"))[:2]
+    first.write_bytes(second.read_bytes())
+    with pytest.raises(ValueError, match=rf"Parliamentary JSON identifier mismatch .*{first.name}"):
+        audit_outputs(processed)
+
+
+@pytest.mark.parametrize("kind,code,field,replacement", [
+    ("constituencies", "E14001063", "member_name", "Stale member"),
+    ("constituencies", "E14001063", "registered_patients_mapped", -1),
+    ("organisations", "A81001", "organisation_type", "nhs_trust"),
+    ("organisations", "A81001", "registered_patients_total", -1),
+    ("organisations", "T00001", "parent_relationship_basis", None),
+])
+def test_saved_output_qa_rejects_stale_json_fields(
+    tmp_path: Path, kind: str, code: str, field: str, replacement: object,
+) -> None:
+    _, _, _, processed = _build(tmp_path)
+    path = processed / "json" / kind / f"{code}.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload[field] != replacement
+    payload[field] = replacement
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=rf"Parliamentary JSON mismatch .*{field} differs"):
+        audit_outputs(processed)
+
+
+@pytest.mark.parametrize("kind,code,array,change", [
+    ("constituencies", "E14001063", "site_organisations", "missing"),
+    ("constituencies", "E14001063", "serving_gp_practices", "patient_share"),
+    ("constituencies", "E14001064", "operating_relationships", "re6_status"),
+    ("organisations", "A81001", "relationships", "extra"),
+    ("organisations", "T00001", "relationships", "re6_status"),
+])
+def test_saved_output_qa_rejects_stale_json_relationships(
+    tmp_path: Path, kind: str, code: str, array: str, change: str,
+) -> None:
+    _, _, _, processed = _build(tmp_path)
+    path = processed / "json" / kind / f"{code}.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload[array]
+    if change == "missing":
+        payload[array].pop()
+    elif change == "patient_share":
+        payload[array][0]["share_of_practice_list"] = -1.0
+    elif change == "re6_status":
+        relationship = next(row for row in payload[array]
+                            if row["relationship_basis"] == "operating_relationship")
+        relationship["relationship_temporal_status"] = "expired"
+    else:
+        payload[array].append(payload[array][0])
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=rf"Parliamentary JSON mismatch .*{array} differs"):
+        audit_outputs(processed)
+
+
 def test_re6_dates_gate_current_parliamentary_evidence(tmp_path: Path) -> None:
     config, raw, _ = _parliament_fixture(tmp_path)
     branches = Path(load_config(config)["ods_gp_branches"].url.removeprefix("file://"))

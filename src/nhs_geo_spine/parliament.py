@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import unicodedata
 from collections import Counter, defaultdict
+from collections.abc import Iterator
 from datetime import date
 from pathlib import Path
 
@@ -445,11 +446,12 @@ def write_parliamentary_outputs(processed: Path, members: pl.DataFrame,
         table.write_parquet(processed / f"{name}.parquet")
         if name != "dim_pcon_member":
             table.write_csv(processed / f"{name}.csv")
-    root = processed / "json"
-    constituency_dir = root / "constituencies"
-    organisation_dir = root / "organisations"
-    constituency_dir.mkdir(parents=True)
-    organisation_dir.mkdir(parents=True)
+    _write_parliamentary_json(processed, brief, profile, links)
+
+
+def _parliamentary_json_payloads(brief: pl.DataFrame, profile: pl.DataFrame,
+                                 links: pl.DataFrame) -> Iterator[tuple[str, str, dict]]:
+    """Project the validated rows into the two public JSON delivery surfaces."""
     by_pcon: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
     by_org: dict[str, list] = defaultdict(list)
     for row in links.iter_rows(named=True):
@@ -459,22 +461,31 @@ def write_parliamentary_outputs(processed: Path, members: pl.DataFrame,
     for row in brief.iter_rows(named=True):
         code = row["pcon24cd"]
         detail = by_pcon[code]
-        payload = {**row, "site_counts_by_type": json.loads(row["site_counts_by_type_json"]),
-                   "site_organisations": sorted(detail["site_location"],
-                                                key=lambda r: (r["organisation_type"], r["org_code"])),
-                   "serving_gp_practices": sorted(detail["registered_patients"],
-                                                  key=lambda r: (-r["registered_patients"],
-                                                                 r["org_code"])),
-                   "operating_relationships": sorted(detail["operating_relationship"],
-                                                     key=lambda r: (r["parent_org_code"],
-                                                                    r["org_code"]))}
-        (constituency_dir / f"{code}.json").write_text(_json(payload) + "\n", encoding="utf-8")
+        yield "constituencies", code, {
+            **row, "site_counts_by_type": json.loads(row["site_counts_by_type_json"]),
+            "site_organisations": sorted(detail["site_location"],
+                                         key=lambda r: (r["organisation_type"], r["org_code"])),
+            "serving_gp_practices": sorted(detail["registered_patients"],
+                                           key=lambda r: (-r["registered_patients"], r["org_code"])),
+            "operating_relationships": sorted(detail["operating_relationship"],
+                                              key=lambda r: (r["parent_org_code"], r["org_code"])),
+        }
     for row in profile.iter_rows(named=True):
         code = row["org_code"]
-        payload = {**row, "served_constituencies": json.loads(row["served_constituencies_json"])
-                   if row["served_constituencies_json"] is not None else None,
-                   "relationships": by_org[code]}
-        (organisation_dir / f"{code}.json").write_text(_json(payload) + "\n", encoding="utf-8")
+        yield "organisations", code, {
+            **row, "served_constituencies": json.loads(row["served_constituencies_json"])
+            if row["served_constituencies_json"] is not None else None,
+            "relationships": by_org[code],
+        }
+
+
+def _write_parliamentary_json(processed: Path, brief: pl.DataFrame,
+                              profile: pl.DataFrame, links: pl.DataFrame) -> None:
+    root = processed / "json"
+    for kind in ("constituencies", "organisations"):
+        (root / kind).mkdir(parents=True)
+    for kind, code, payload in _parliamentary_json_payloads(brief, profile, links):
+        (root / kind / f"{code}.json").write_text(_json(payload) + "\n", encoding="utf-8")
 
 
 def audit_parliamentary_outputs(processed: Path, manifest: dict) -> dict:
@@ -492,6 +503,36 @@ def audit_parliamentary_outputs(processed: Path, manifest: dict) -> dict:
     for kind, codes in (("constituencies", tables["dim_pcon_member"]["pcon24cd"]),
                         ("organisations", tables["organisation_parliamentary_profile"]["org_code"])):
         folder = processed / "json" / kind
-        if {path.stem for path in folder.glob("*.json")} != set(codes):
-            raise ValueError(f"Parliamentary {kind} JSON files do not cover the table")
+        actual_codes = {path.stem for path in folder.glob("*.json")}
+        expected_codes = set(codes)
+        if actual_codes != expected_codes:
+            raise ValueError(f"Parliamentary {kind} JSON files do not cover the table: "
+                             f"missing={sorted(expected_codes - actual_codes)[:5]}, "
+                             f"extra={sorted(actual_codes - expected_codes)[:5]}")
+    for kind, code, expected in _parliamentary_json_payloads(
+            tables["pcon_parliamentary_brief"],
+            tables["organisation_parliamentary_profile"],
+            tables["mp_nhs_relationship"]):
+        path = processed / "json" / kind / f"{code}.json"
+        try:
+            actual = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeError) as exc:
+            raise ValueError(f"Invalid parliamentary JSON at {path}: {exc}") from exc
+        if not isinstance(actual, dict):
+            raise TypeError(f"Invalid parliamentary JSON at {path}: payload is not an object")
+        identifier = "pcon24cd" if kind == "constituencies" else "org_code"
+        if actual.get(identifier) != code:
+            raise ValueError(f"Parliamentary JSON identifier mismatch at {path}: "
+                             f"{identifier} does not match filename {code}")
+        expected_json = _json(expected)
+        if _json(actual) != expected_json:
+            expected_fields = json.loads(expected_json)
+            if set(actual) != set(expected_fields):
+                detail = (f"field coverage differs: missing={sorted(set(expected_fields) - set(actual))}, "
+                          f"extra={sorted(set(actual) - set(expected_fields))}")
+            else:
+                field = next(key for key in expected_fields
+                             if _json(actual[key]) != _json(expected_fields[key]))
+                detail = f"{field} differs from validated Parquet"
+            raise ValueError(f"Parliamentary JSON mismatch at {path}: {detail}")
     return result
