@@ -29,7 +29,8 @@ PROVIDER_SOURCE_KEYS = (
     "ods_sub_icb_sites",
     "ons_icb26_codes",
 )
-SOURCE_KEYS = CORE_SOURCE_KEYS + PROVIDER_SOURCE_KEYS
+PARLIAMENT_SOURCE_KEY = "parliament_current_constituencies"
+SOURCE_KEYS = CORE_SOURCE_KEYS + PROVIDER_SOURCE_KEYS + (PARLIAMENT_SOURCE_KEY,)
 
 
 @dataclass(frozen=True)
@@ -48,8 +49,11 @@ class Source:
 def load_config(path: Path) -> dict[str, Source]:
     """Load the explicit source contract, rejecting missing or unsafe entries."""
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or set(data) not in (set(CORE_SOURCE_KEYS), set(SOURCE_KEYS)):
-        raise ValueError(f"{path}: expected the v0.1 sources or the complete v0.2 source set: {SOURCE_KEYS}")
+    allowed = (set(CORE_SOURCE_KEYS), set(CORE_SOURCE_KEYS + PROVIDER_SOURCE_KEYS),
+               set(SOURCE_KEYS))
+    if not isinstance(data, dict) or set(data) not in allowed:
+        raise ValueError(f"{path}: expected the v0.1 sources, complete v0.2 source set, "
+                         f"or complete v0.3 source set: {SOURCE_KEYS}")
     result: dict[str, Source] = {}
     for key in SOURCE_KEYS:
         if key not in data:
@@ -83,6 +87,17 @@ def sha256_file(path: Path) -> str:
 def _validate_download(path: Path, source: Source) -> None:
     if path.stat().st_size == 0:
         raise ValueError(f"{source.key}: empty download")
+    if source.key == PARLIAMENT_SOURCE_KEY:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise ValueError(f"{source.key}: invalid Parliament JSON") from exc
+        if (not isinstance(payload, dict) or not isinstance(payload.get("items"), list)
+                or not isinstance(payload.get("totalResults"), int)
+                or len(payload["items"]) != payload["totalResults"]
+                or not payload["items"]):
+            raise ValueError(f"{source.key}: incomplete Parliament constituency snapshot")
+        return
     if Path(source.filename).suffix.lower() == ".zip":
         if not zipfile.is_zipfile(path):
             raise ValueError(f"{source.key}: expected ZIP; upstream may have returned an error page")
@@ -108,6 +123,31 @@ def _download(source: Source, target: Path) -> None:
     if parsed.scheme == "file":
         with Path(unquote(parsed.path)).open("rb") as stream, target.open("wb") as out:
             shutil.copyfileobj(stream, out)
+        return
+    if source.key == PARLIAMENT_SOURCE_KEY:
+        items: list[dict] = []
+        total: int | None = None
+        try:
+            with httpx.Client(follow_redirects=True, timeout=60.0) as client:
+                while total is None or len(items) < total:
+                    response = client.get(source.url, params={"skip": len(items), "take": 20},
+                                          headers={"User-Agent": "nhs-geography-spine/0.3"})
+                    response.raise_for_status()
+                    page = response.json()
+                    chunk = page.get("items")
+                    if (not isinstance(page.get("totalResults"), int)
+                            or not isinstance(chunk, list) or not chunk
+                            or (total is not None and page["totalResults"] != total)
+                            or page.get("skip") != len(items)):
+                        raise ValueError("Parliament API pagination changed during retrieval")
+                    total = page["totalResults"]
+                    items.extend(chunk)
+                    if len(items) > total or total > 1000:
+                        raise ValueError("Parliament API constituency count is invalid")
+        except (httpx.HTTPError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"{source.key}: download failed from {source.url}: {exc}") from exc
+        target.write_text(json.dumps({"totalResults": total, "items": items},
+                                     sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
         return
     try:
         with (

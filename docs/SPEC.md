@@ -326,8 +326,9 @@ Do not rely on a source URL being permanently versioned; cache the exact raw fil
 
 ### v0.3
 
-- Extend defensible provider/commissioner site-location coverage across the UK with source and licence review.
-- Add further organisational or population roll-ups only when source relationships or flow data support them.
+- Implement Issue #5's parliamentary engagement layer on the fixed v0.1/v0.2 geography and organisation coverage.
+- Add a separately refreshed UK Parliament current Commons member/vacancy dimension, full PCON24 validation, constituency briefs, ODS organisation profiles, three evidence-labelled relationship signals, CLI inspection and web-ready JSON.
+- Preserve patient conservation and site-only non-GP semantics. Future provider/commissioner population flows need a separate defensible source.
 
 ### v1.0
 

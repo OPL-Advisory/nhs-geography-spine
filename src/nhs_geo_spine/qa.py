@@ -383,4 +383,15 @@ def audit_outputs(processed_dir: Path) -> dict:
             saved = pl.read_parquet(processed_dir / f"{view}.parquet").height
             if count != saved or count != manifest["row_counts"][f"{view}_rows"]:
                 raise ValueError(f"{view} row count differs between DuckDB, Parquet and manifest")
+        if "dim_pcon_member_rows" in manifest["row_counts"]:
+            for table in ("dim_pcon_member", "pcon_parliamentary_brief",
+                          "organisation_parliamentary_profile", "mp_nhs_relationship"):
+                count = connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                saved = pl.read_parquet(processed_dir / f"{table}.parquet").height
+                if count != saved or count != manifest["row_counts"][f"{table}_rows"]:
+                    raise ValueError(f"{table} row count differs between DuckDB, Parquet and manifest")
+    if "dim_pcon_member_rows" in manifest["row_counts"]:
+        from .parliament import audit_parliamentary_outputs
+
+        report["parliamentary"] = audit_parliamentary_outputs(processed_dir, manifest)
     return report

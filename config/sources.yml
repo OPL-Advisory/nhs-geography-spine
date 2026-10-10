@@ -79,3 +79,10 @@ gp_registered_patients_lsoa:
   source_date_kind: GP patient extract date
   publisher: NHS England
   data_member: gp-reg-pat-prac-lsoa-all.csv
+parliament_current_constituencies:
+  url: https://members-api.parliament.uk/api/Location/Constituency/Search
+  filename: parliament_constituencies_current.json
+  source_version: UK Parliament Members API v1 current constituency search
+  source_date: retrieval
+  source_date_kind: UTC retrieval snapshot of current Commons representation
+  publisher: UK Parliament
