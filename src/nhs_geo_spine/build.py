@@ -475,6 +475,8 @@ def export(format: str = typer.Option(..., help="parquet, csv or duckdb"),
         files["csv"].extend(f"{name}.csv" for name in PARLIAMENT_TABLES
                             if name != "dim_pcon_member")
     target = output_dir or processed_dir
+    if output_dir is not None and target.resolve().is_relative_to(processed_dir.resolve()):
+        raise typer.BadParameter("output directory must be outside the processed bundle")
     target.mkdir(parents=True, exist_ok=True)
     for name in files[format]:
         source = processed_dir / name

@@ -193,6 +193,43 @@ def test_cli_fetch_build_qa_from_clean_cache(tmp_path: Path) -> None:
         assert result.exit_code == 0, result.output
 
 
+@pytest.mark.parametrize("nested", ["export", "scratch/../export", "scratch/.."])
+def test_nested_export_is_refused_without_side_effects_and_rebuilds(
+    tmp_path: Path, nested: str,
+) -> None:
+    config, raw = _fixture_sources(tmp_path)
+    fetch_sources(load_config(config), raw)
+    processed = tmp_path / "processed"
+    build_pipeline(config, raw, processed, offline=True)
+    before = {path.name: sha256_file(path) for path in processed.iterdir() if path.is_file()}
+    entries = {path.name for path in processed.iterdir()}
+
+    result = CliRunner().invoke(app, ["export", "--format", "csv", "--processed-dir",
+                                     str(processed), "--output-dir", str(processed / nested)])
+    assert result.exit_code != 0
+    assert "output directory must be outside the processed bundle" in result.output
+    assert {path.name for path in processed.iterdir()} == entries
+    assert {path.name: sha256_file(path) for path in processed.iterdir() if path.is_file()} == before
+
+    build_pipeline(config, raw, processed, offline=True)
+    assert audit_outputs(processed)["patient_reconciliation"]["difference"] == 0
+
+
+def test_export_to_separate_directory_still_works(tmp_path: Path) -> None:
+    config, raw = _fixture_sources(tmp_path)
+    fetch_sources(load_config(config), raw)
+    processed = tmp_path / "processed"
+    build_pipeline(config, raw, processed, offline=True)
+    destination = tmp_path / "exports"
+
+    result = CliRunner().invoke(app, ["export", "--format", "csv", "--processed-dir",
+                                     str(processed), "--output-dir", str(destination)])
+    assert result.exit_code == 0, result.output
+    for name in ("nhs_org_to_pcon.csv", "gp_practice_patient_pcon.csv"):
+        assert sha256_file(destination / name) == sha256_file(processed / name)
+    assert audit_outputs(processed)["patient_reconciliation"]["difference"] == 0
+
+
 @pytest.mark.parametrize("already_owned", [False, True])
 def test_build_refuses_custom_directory_with_unrelated_file(
     tmp_path: Path, already_owned: bool,
