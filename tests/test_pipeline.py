@@ -193,6 +193,71 @@ def test_cli_fetch_build_qa_from_clean_cache(tmp_path: Path) -> None:
         assert result.exit_code == 0, result.output
 
 
+@pytest.mark.parametrize("already_owned", [False, True])
+def test_build_refuses_custom_directory_with_unrelated_file(
+    tmp_path: Path, already_owned: bool,
+) -> None:
+    config, raw = _fixture_sources(tmp_path)
+    fetch_sources(load_config(config), raw)
+    processed = tmp_path / "custom-output"
+    if already_owned:
+        build_pipeline(config, raw, processed, offline=True)
+    else:
+        processed.mkdir()
+    unrelated = processed / "my-notes.txt"
+    unrelated.write_text("keep this file\n", encoding="utf-8")
+    previous = sha256_file(processed / "build_manifest.json") if already_owned else None
+    with pytest.raises(ValueError, match="Unowned file|Unowned processed directory"):
+        build_pipeline(config, raw, processed, offline=True)
+    assert unrelated.read_text(encoding="utf-8") == "keep this file\n"
+    if previous is not None:
+        assert sha256_file(processed / "build_manifest.json") == previous
+    assert not list(tmp_path.glob(".custom-output-build-*"))
+
+
+def test_owned_custom_directory_rebuilds_complete_bundle(tmp_path: Path) -> None:
+    config, raw = _fixture_sources(tmp_path)
+    fetch_sources(load_config(config), raw)
+    processed = tmp_path / "custom-output"
+    build_pipeline(config, raw, processed, offline=True)
+    marker = processed / ".nhs-geography-spine-output"
+    assert marker.read_text(encoding="utf-8") == "nhs-geography-spine-output-v1\n"
+    build_pipeline(config, raw, processed, offline=True)
+    assert marker.exists()
+    assert audit_outputs(processed)["patient_reconciliation"]["difference"] == 0
+    assert not list(tmp_path.glob(".custom-output-build-*"))
+
+
+def test_default_output_migrates_legacy_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, raw = _fixture_sources(tmp_path)
+    fetch_sources(load_config(config), raw)
+    processed = tmp_path / "data" / "processed"
+    processed.mkdir(parents=True)
+    (processed / ".gitkeep").write_text("\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("nhs_geo_spine.build._git_state",
+                        lambda: {"git_sha": None, "git_dirty": None})
+    build_pipeline(config, raw, Path("data/processed"), offline=True)
+    assert (processed / ".nhs-geography-spine-output").exists()
+    assert audit_outputs(processed)["patient_reconciliation"]["difference"] == 0
+
+
+def test_build_refuses_current_directory_without_changing_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, raw = _fixture_sources(tmp_path)
+    fetch_sources(load_config(config), raw)
+    sentinel = tmp_path / "sentinel.txt"
+    sentinel.write_text("untouched\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match="Unsafe processed directory"):
+        build_pipeline(config, raw, Path("."), offline=True)
+    assert sentinel.read_text(encoding="utf-8") == "untouched\n"
+    assert not list(tmp_path.glob("..-build-*"))
+
+
 def test_nhspd_invalid_2021_geography_fails(tmp_path: Path) -> None:
     config_path, _raw = _fixture_sources(tmp_path)
     config = load_config(config_path)

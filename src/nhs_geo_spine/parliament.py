@@ -306,6 +306,12 @@ def validate_parliamentary_tables(members: pl.DataFrame, brief: pl.DataFrame,
                       | pl.col("source_version").is_null()
                       | pl.col("retrieved_at").is_null()).height:
         raise ValueError("Member source provenance is incomplete")
+    for field in ("source_snapshot_date", "source_version", "source_url", "retrieved_at"):
+        if members[field].n_unique() != 1:
+            raise ValueError(f"Member dimension has inconsistent {field}")
+    if not members.select("pcon24cd", "pcon24nm").sort("pcon24cd").equals(
+            pcon.select("pcon24cd", "pcon24nm").sort("pcon24cd")):
+        raise ValueError("Member dimension constituency names differ from PCON24 source")
     if (brief["pcon24cd"].n_unique() != brief.height
             or set(brief["pcon24cd"]) != set(pcon["pcon24cd"])):
         raise ValueError("Parliamentary brief does not cover every PCON24 code")
@@ -373,7 +379,7 @@ def validate_parliamentary_tables(members: pl.DataFrame, brief: pl.DataFrame,
                     expected_parent_member["member_name"] if expected_parent_member else None)
                 or saved["parent_address_member_status"] != (
                     expected_parent_member["member_status"] if expected_parent_member else None)):
-            raise ValueError(f"Parliamentary profile has non-current RE6 context: {code}")
+            raise ValueError(f"Parliamentary profile RE6 or parent member context differs from source: {code}")
         if current and expected_parent_pcon in member_by_code:
             expected_operating[(code, expected_parent_pcon)] = org
     operating = links.filter(pl.col("relationship_basis") == "operating_relationship")
@@ -420,6 +426,18 @@ def validate_parliamentary_tables(members: pl.DataFrame, brief: pl.DataFrame,
             (pl.col("registered_patients_mapped") != pl.col("expected_patients"))
             | (pl.col("serving_gp_practice_count") != pl.col("expected_practices"))).height:
         raise ValueError("Constituency brief does not reconcile GP patient links")
+    # The saved parliamentary tables duplicate member, organisation and patient evidence.
+    # Replay their deterministic projection to catch drift in every copied field, not just totals.
+    expected_brief, expected_profile, expected_links = make_parliamentary_tables(
+        members, org_profile, patients)
+    for name, saved, rebuilt, order in (
+        ("pcon_parliamentary_brief", brief, expected_brief, "pcon24cd"),
+        ("organisation_parliamentary_profile", profile, expected_profile, "org_code"),
+        ("mp_nhs_relationship", links, expected_links,
+         ["pcon24cd", "relationship_basis", "org_code"]),
+    ):
+        if saved.columns != rebuilt.columns or not saved.sort(order).equals(rebuilt.sort(order)):
+            raise ValueError(f"{name} differs from canonical member, organisation or patient evidence")
     return {
         "member_rows": members.height,
         "matched_pcon24_rows": members.height,

@@ -63,6 +63,14 @@ def _build(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     return config, raw, member_file, processed
 
 
+def _change_parquet_field(path: Path, key: str, code: str,
+                          field: str, value: object) -> None:
+    table = pl.read_parquet(path)
+    assert code in table[key].to_list()
+    table.with_columns(pl.when(pl.col(key) == code).then(pl.lit(value))
+                       .otherwise(pl.col(field)).alias(field)).write_parquet(path)
+
+
 def test_parliamentary_build_keeps_v01_v02_and_separates_signals(tmp_path: Path) -> None:
     _, _, _, processed = _build(tmp_path)
     assert (processed / ".gitkeep").read_text(encoding="utf-8") == "\n"
@@ -219,6 +227,16 @@ def test_parliamentary_outputs_deterministic(tmp_path: Path) -> None:
     assert [sha256_file(path) for path in paths] == before
 
 
+def test_parliamentary_rebuild_preserves_unrelated_nested_file(tmp_path: Path) -> None:
+    config, raw, _, processed = _build(tmp_path)
+    unrelated = processed / "json" / "organisations" / "notes.txt"
+    unrelated.write_text("do not remove\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Unowned file in processed directory"):
+        build_pipeline(config, raw, processed, offline=True)
+    assert unrelated.read_text(encoding="utf-8") == "do not remove\n"
+    assert (processed / "build_manifest.json").exists()
+
+
 def test_saved_output_qa_catches_profile_patient_loss(tmp_path: Path) -> None:
     _, _, _, processed = _build(tmp_path)
     path = processed / "organisation_parliamentary_profile.parquet"
@@ -228,6 +246,106 @@ def test_saved_output_qa_catches_profile_patient_loss(tmp_path: Path) -> None:
     )
     profile.write_parquet(path)
     with pytest.raises(ValueError, match="GP parliamentary profile does not reconcile"):
+        audit_outputs(processed)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("party_name", "Changed party"),
+    ("member_name", "Changed member"),
+    ("source_snapshot_date", None),
+])
+def test_saved_output_qa_rejects_member_dimension_drift(
+    tmp_path: Path, field: str, value: object,
+) -> None:
+    _, _, _, processed = _build(tmp_path)
+    if field == "source_snapshot_date":
+        path = processed / "dim_pcon_member.parquet"
+        members = pl.read_parquet(path)
+        value = members[field][0] + timedelta(days=1)
+        members.with_columns(pl.lit(value).alias(field)).write_parquet(path)
+    else:
+        _change_parquet_field(processed / "dim_pcon_member.parquet", "pcon24cd", "E14001063",
+                              field, value)
+    with pytest.raises(ValueError, match="inconsistent|differs from source|differs from canonical"):
+        audit_outputs(processed)
+
+
+@pytest.mark.parametrize("filename,key,code,field,value", [
+    ("pcon_parliamentary_brief.parquet", "pcon24cd", "E14001063",
+     "party_name", "Stale party"),
+    ("mp_nhs_relationship.parquet", "pcon24cd", "E14001063",
+     "member_name", "Stale member"),
+    ("organisation_parliamentary_profile.parquet", "org_code", "A81001",
+     "address_member_party", "Stale party"),
+])
+def test_saved_output_qa_rejects_denormalised_member_drift(
+    tmp_path: Path, filename: str, key: str, code: str, field: str, value: object,
+) -> None:
+    _, _, _, processed = _build(tmp_path)
+    _change_parquet_field(processed / filename, key, code, field, value)
+    with pytest.raises(ValueError, match="differs from canonical"):
+        audit_outputs(processed)
+
+
+def test_saved_output_qa_rejects_served_constituency_member_drift(tmp_path: Path) -> None:
+    _, _, _, processed = _build(tmp_path)
+    path = processed / "organisation_parliamentary_profile.parquet"
+    profile = pl.read_parquet(path)
+    served = json.loads(profile.filter(pl.col("org_code") == "A81001")[
+        "served_constituencies_json"][0])
+    served[0]["member_name"] = "Stale member"
+    _change_parquet_field(path, "org_code", "A81001", "served_constituencies_json",
+                          json.dumps(served))
+    with pytest.raises(ValueError, match="organisation_parliamentary_profile differs from canonical"):
+        audit_outputs(processed)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("lsoa_source_period", "2026-06-01"),
+    ("source_version", "Changed patient extract"),
+])
+def test_saved_output_qa_rejects_patient_source_provenance_drift(
+    tmp_path: Path, field: str, value: str,
+) -> None:
+    _, _, _, processed = _build(tmp_path)
+    _change_parquet_field(processed / "gp_practice_patient_pcon.parquet", "practice_code",
+                          "A81001", field, value)
+    with pytest.raises(ValueError, match="differs from canonical"):
+        audit_outputs(processed)
+
+
+def test_saved_output_qa_rejects_reallocated_patient_shares(tmp_path: Path) -> None:
+    _, _, _, processed = _build(tmp_path)
+    path = processed / "gp_practice_patient_pcon.parquet"
+    bridge = pl.read_parquet(path)
+    shares = bridge["patient_share"].to_list()
+    original_share_total = sum(shares)
+    first = next(i for i, row in enumerate(bridge.iter_rows(named=True))
+                 if row["practice_code"] == "A81001" and row["pcon24cd"] == "E14001063")
+    second = next(i for i, row in enumerate(bridge.iter_rows(named=True))
+                  if row["practice_code"] == "A81001" and row["pcon24cd"] == "E14001064")
+    shares[first] += 0.01
+    shares[second] -= 0.01
+    bridge.with_columns(pl.Series("patient_share", shares)).write_parquet(path)
+    assert abs(sum(shares) - original_share_total) < 1e-9
+    with pytest.raises(ValueError, match="differs from canonical"):
+        audit_outputs(processed)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("org_name", "Changed name"),
+    ("organisation_type", "nhs_trust"),
+    ("address_pcon24cd", "E14001064"),
+    ("status", "INACTIVE"),
+    ("source_version", "Changed ODS report"),
+])
+def test_saved_output_qa_rejects_canonical_organisation_drift(
+    tmp_path: Path, field: str, value: str,
+) -> None:
+    _, _, _, processed = _build(tmp_path)
+    _change_parquet_field(processed / "organisation_pcon_profile.parquet", "org_code",
+                          "A81001", field, value)
+    with pytest.raises(ValueError, match="differs from canonical|Non-GP parliamentary profile"):
         audit_outputs(processed)
 
 

@@ -53,6 +53,11 @@ BUILD_OUTPUTS = (
     "pcon_provider_summary.parquet", "pcon_provider_summary.csv",
     "organisation_pcon_profile.parquet", "organisation_pcon_profile.csv",
 )
+OUTPUT_MARKER = ".nhs-geography-spine-output"
+OUTPUT_MARKER_CONTENT = "nhs-geography-spine-output-v1\n"
+_OWNED_FILES = set(BUILD_OUTPUTS) | set(PARLIAMENT_OUTPUTS) | {
+    "build_manifest.json", ".gitkeep", OUTPUT_MARKER,
+}
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -68,6 +73,59 @@ def _git_state() -> dict[str, str | bool | None]:
     except (OSError, subprocess.CalledProcessError):
         return {"git_sha": None, "git_dirty": None}
     return {"git_sha": sha, "git_dirty": dirty}
+
+
+def _check_output_destination(config_path: Path, raw_dir: Path, processed_dir: Path) -> None:
+    """Refuse a destructive replacement unless the destination is a dedicated bundle."""
+    target = processed_dir.resolve()
+    raw = raw_dir.resolve()
+    protected = (Path.cwd().resolve(), config_path.resolve(), raw,
+                 Path(__file__).resolve().parents[2])
+    if (processed_dir.is_symlink() or any(path == target or path.is_relative_to(target)
+                                          for path in protected)
+            or target.is_relative_to(raw)):
+        raise ValueError(f"Unsafe processed directory: {processed_dir}")
+    if not processed_dir.exists():
+        return
+    if not processed_dir.is_dir():
+        raise ValueError(f"Processed destination is not a directory: {processed_dir}")
+    entries = list(processed_dir.iterdir())
+    if not entries:
+        return
+    marker = processed_dir / OUTPUT_MARKER
+    if marker.exists():
+        if (marker.is_symlink() or not marker.is_file()
+                or marker.read_text(encoding="utf-8") != OUTPUT_MARKER_CONTENT):
+            raise ValueError(f"Invalid processed bundle ownership marker: {marker}")
+    else:
+        legacy_default = target == DEFAULT_PROCESSED.resolve()
+        legacy_bundle = ((processed_dir / "build_manifest.json").is_file()
+                         or {path.name for path in entries} == {".gitkeep"})
+        if not legacy_default or not legacy_bundle:
+            raise ValueError(f"Unowned processed directory contains files: {processed_dir}")
+    for path in entries:
+        if path.is_symlink() or path.name not in _OWNED_FILES | {"json"}:
+            raise ValueError(f"Unowned file in processed directory: {path}")
+        if path.name == "json":
+            if not path.is_dir():
+                raise ValueError(f"Unexpected processed JSON entry: {path}")
+            for category, table, column in (
+                ("constituencies", "dim_pcon_member", "pcon24cd"),
+                ("organisations", "organisation_parliamentary_profile", "org_code"),
+            ):
+                folder = path / category
+                if not folder.is_dir() or folder.is_symlink():
+                    raise ValueError(f"Unexpected processed JSON folder: {folder}")
+                allowed_codes = set(pl.read_parquet(processed_dir / f"{table}.parquet",
+                                                    columns=[column])[column])
+                for item in folder.iterdir():
+                    if (item.is_symlink() or not item.is_file() or item.suffix != ".json"
+                            or item.stem not in allowed_codes):
+                        raise ValueError(f"Unowned file in processed directory: {item}")
+            if {item.name for item in path.iterdir()} != {"constituencies", "organisations"}:
+                raise ValueError(f"Unowned file in processed JSON directory: {path}")
+        elif not path.is_file():
+            raise ValueError(f"Unexpected processed output entry: {path}")
 
 
 def _create_duckdb(processed: Path) -> None:
@@ -184,6 +242,7 @@ def _create_duckdb(processed: Path) -> None:
 def build_pipeline(config_path: Path = DEFAULT_CONFIG, raw_dir: Path = DEFAULT_RAW,
                    processed_dir: Path = DEFAULT_PROCESSED, offline: bool = False) -> dict:
     """Build all canonical tables from verified raw bytes and return QA results."""
+    _check_output_destination(config_path, raw_dir, processed_dir)
     config = load_config(config_path)
     if not offline:
         fetch_sources(config, raw_dir)
@@ -206,6 +265,10 @@ def build_pipeline(config_path: Path = DEFAULT_CONFIG, raw_dir: Path = DEFAULT_R
             audit_parliamentary_outputs(stage, json.loads(
                 (stage / "build_manifest.json").read_text(encoding="utf-8")))
         (stage / ".gitkeep").write_text("\n", encoding="utf-8")
+        (stage / OUTPUT_MARKER).write_text(OUTPUT_MARKER_CONTENT, encoding="utf-8")
+        _check_output_destination(config_path, raw_dir, processed_dir)
+        if backup.exists() or backup.is_symlink():
+            raise RuntimeError(f"Build backup path already exists: {backup}")
         if processed_dir.exists():
             processed_dir.replace(backup)
         try:
