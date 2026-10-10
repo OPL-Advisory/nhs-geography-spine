@@ -8,3 +8,6 @@ data/.processed-build-*/
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 *.duckdb
+web/dist/
+web/.dist-build-*/
+data/opt-out-spike/

@@ -7,6 +7,8 @@ A reproducible public-data pipeline for two different questions:
 
 The two bridges are separate. Postcode allocation uses the NHS Postcode Directory's direct constituency assignment; LSOA best-fit is a statistical allocation, not a polygon intersection or evidence that a practice site is in that constituency. Trust and commissioner entries locate coded addresses only; they do not measure service catchment or commissioning responsibility. No NHS site location is inferred from a town or organisation name. The v0.3 parliamentary layer joins a separately refreshed current UK Parliament member snapshot to the fixed PCON24 code set.
 
+The v0.4 [NHS Parliamentary Lens](web/README.md) is a static, searchable consumer of those validated v0.3 JSON outputs. It is a local release candidate, not a deployed site. The [National Data Opt-Out assessment](docs/OPT_OUT_INTEGRATION_SPIKE.md) and [dementia/frailty roadmap](docs/DEMENTIA_FRAILTY_INTEGRATION_ROADMAP.md) keep those topics behind separate source and publication decisions.
+
 ## Run from a clean checkout
 
 Python 3.12 or newer is required. These commands install a regular wheel so the CLI works in a clean environment:
