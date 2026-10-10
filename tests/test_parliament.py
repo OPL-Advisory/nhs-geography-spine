@@ -1,12 +1,15 @@
 """Offline parliamentary member, relationship, CLI and publication regressions."""
 
 import json
+import subprocess
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import polars as pl
 import pytest
 import yaml
-from test_providers import _provider_fixture
+from test_pipeline import _csv, _fixture_sources
+from test_providers import _provider_fixture, _report
 from typer.testing import CliRunner
 
 from nhs_geo_spine.build import app, build_pipeline
@@ -226,3 +229,89 @@ def test_saved_output_qa_catches_profile_patient_loss(tmp_path: Path) -> None:
     profile.write_parquet(path)
     with pytest.raises(ValueError, match="GP parliamentary profile does not reconcile"):
         audit_outputs(processed)
+
+
+def test_re6_dates_gate_current_parliamentary_evidence(tmp_path: Path) -> None:
+    config, raw, _ = _parliament_fixture(tmp_path)
+    branches = Path(load_config(config)["ods_gp_branches"].url.removeprefix("file://"))
+    snapshot = datetime.now(UTC).date()
+    expired = _report("B00003", "Expired RE6 branch", "SW1A 2AA", parent="A81001")
+    expired[15] = (snapshot - timedelta(days=10)).strftime("%Y%m%d")
+    expired[16] = (snapshot - timedelta(days=1)).strftime("%Y%m%d")
+    future = _report("B00004", "Future RE6 branch", "SW1A 2AA", parent="A81001")
+    future[15] = (snapshot + timedelta(days=1)).strftime("%Y%m%d")
+    boundary = _report("B00005", "Current RE6 branch", "SW1A 2AA", parent="A81001")
+    boundary[15] = snapshot.strftime("%Y%m%d")
+    boundary[16] = snapshot.strftime("%Y%m%d")
+    branches.write_bytes(branches.read_bytes() + _csv([expired, future, boundary]))
+    fetch_sources(load_config(config), raw)
+    processed = tmp_path / "processed"
+    report = build_pipeline(config, raw, processed, offline=True)
+    assert report["parliamentary"]["active_re6_by_temporal_status"] == {
+        "effective": 6, "expired": 1, "future": 1,
+    }
+    links = pl.read_parquet(processed / "mp_nhs_relationship.parquet")
+    operators = links.filter(pl.col("relationship_basis") == "operating_relationship")
+    assert "B00003" not in operators["org_code"].to_list()
+    assert "B00004" not in operators["org_code"].to_list()
+    current = operators.filter(pl.col("org_code") == "B00005").row(0, named=True)
+    assert current["relationship_start_date"] == snapshot
+    assert current["relationship_end_date"] == snapshot
+    assert current["relationship_temporal_status"] == "current"
+    profile = {row["org_code"]: row for row in pl.read_parquet(
+        processed / "organisation_parliamentary_profile.parquet").to_dicts()}
+    for code, status, start, end in (
+        ("B00003", "expired", snapshot - timedelta(days=10), snapshot - timedelta(days=1)),
+        ("B00004", "future", snapshot + timedelta(days=1), None),
+    ):
+        row = profile[code]
+        assert row["parent_relationship_temporal_status"] == status
+        assert row["parent_relationship_current_at_snapshot"] is False
+        assert row["parent_relationship_basis"] is None
+        assert row["parent_address_member_name"] is None
+        assert row["parent_current_address_pcon24cd"] is None
+        assert row["parent_address_pcon24cd"] == "E14001063"  # retained source context
+        assert row["relationship_start_date"] == start
+        assert row["relationship_end_date"] == end
+        detail = json.loads((processed / "json" / "organisations" / f"{code}.json").read_text())
+        assert detail["parent_relationship_temporal_status"] == status
+        assert detail["relationship_end_date"] == (str(end) if end else None)
+        readable = CliRunner().invoke(app, ["organisation", code, "--processed-dir", str(processed)])
+        assert readable.exit_code == 0, readable.output
+        assert f"{status}; not a current parliamentary link" in readable.output
+    assert profile["B00005"]["parent_relationship_temporal_status"] == "effective"
+    assert profile["B00005"]["parent_relationship_current_at_snapshot"] is True
+    assert profile["B00005"]["parent_relationship_basis"] == "operating_relationship"
+    assert profile["B00005"]["parent_address_member_name"] == "Member 123"
+    pcon_json = json.loads((processed / "json" / "constituencies" / "E14001063.json").read_text())
+    codes = {row["org_code"] for row in pcon_json["operating_relationships"]}
+    assert "B00005" in codes and "B00003" not in codes and "B00004" not in codes
+    assert audit_outputs(processed)["parliamentary"]["active_re6_by_temporal_status"] == (
+        report["parliamentary"]["active_re6_by_temporal_status"])
+
+
+def test_custom_processed_dir_preserves_clean_prebuild_git_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    config, raw = _fixture_sources(inputs)
+    fetch_sources(load_config(config), raw)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / "README.md").write_text("clean checkout\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
+                    "-c", "commit.gpgsign=false", "commit", "-qm", "Initial commit"],
+                   cwd=repo, check=True)
+    expected_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo,
+                                           text=True).strip()
+    monkeypatch.chdir(repo)
+    processed = repo / "outputs"  # deliberately outside the project's default ignore rule
+    build_pipeline(config, raw, processed, offline=True)
+    manifest = json.loads((processed / "build_manifest.json").read_text())
+    assert manifest["code"]["git_sha"] == expected_sha
+    assert manifest["code"]["git_dirty"] is False
+    assert "?? outputs/" in subprocess.check_output(["git", "status", "--porcelain"],
+                                                      cwd=repo, text=True)

@@ -188,12 +188,13 @@ def build_pipeline(config_path: Path = DEFAULT_CONFIG, raw_dir: Path = DEFAULT_R
     if not offline:
         fetch_sources(config, raw_dir)
     ledger = verified_sources(config, raw_dir)
+    code_state = _git_state()
     processed_dir.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(mkdtemp(prefix=f".{processed_dir.name}-build-", dir=processed_dir.parent))
     backup = stage.with_name(stage.name + "-previous")
     published = False
     try:
-        report = _build_bundle(config, ledger, raw_dir, stage)
+        report = _build_bundle(config, ledger, raw_dir, stage, code_state)
         outputs = BUILD_OUTPUTS + (PARLIAMENT_OUTPUTS if MEMBER_SOURCE_KEY in config else ())
         missing = [name for name in (*outputs, "build_manifest.json") if not (stage / name).is_file()]
         if missing:
@@ -223,7 +224,8 @@ def build_pipeline(config_path: Path = DEFAULT_CONFIG, raw_dir: Path = DEFAULT_R
 
 
 def _build_bundle(config: dict[str, Source], ledger: dict, raw_dir: Path,
-                  processed_dir: Path) -> dict:
+                  processed_dir: Path,
+                  code_state: dict[str, str | bool | None]) -> dict:
     """Produce a complete bundle in an unpublished staging directory."""
     source = ledger["sources"]
     ons = read_lsoa_lookup(raw_dir / config["ons_lsoa21_pcon24"].filename,
@@ -302,7 +304,7 @@ def _build_bundle(config: dict[str, Source], ledger: dict, raw_dir: Path,
     manifest = {
         "build_timestamp": datetime.now(UTC).isoformat(),
         "code": {"package_version": "0.3.0" if MEMBER_SOURCE_KEY in config else "0.2.0",
-                 **_git_state()},
+                 **code_state},
         "sources": source,
         "geography_vintages": {"lsoa": "2021 England/Wales", "pcon": "July 2024",
                                 "postcode": postcode_spec.source_version},
@@ -460,9 +462,17 @@ def _show_json(path: Path, code: str, kind: str, as_json: bool) -> None:
         typer.echo(f"site_location address PCON: {value['address_pcon24cd'] or 'Unmapped'}; "
                    f"MP: {value['address_member_name'] or value['address_member_status'] or 'Unavailable'}")
         if value["parent_org_code"]:
-            typer.echo(f"operating_relationship RE6 operator: {value['parent_org_code']} "
-                       f"{value['parent_org_name'] or ''}; "
-                       f"parent address PCON: {value['parent_address_pcon24cd'] or 'Unmapped'}")
+            if value["parent_relationship_current_at_snapshot"]:
+                typer.echo(f"operating_relationship RE6 operator: {value['parent_org_code']} "
+                           f"{value['parent_org_name'] or ''}; parent address PCON: "
+                           f"{value['parent_current_address_pcon24cd'] or 'Unmapped'}")
+            else:
+                temporal = value["parent_relationship_temporal_status"] or "undated"
+                status = (temporal if value["status"] == "ACTIVE"
+                          else f"{temporal}; organisation {value['status'].lower()}")
+                typer.echo(f"Source RE6 operator ({status}; not a current parliamentary link): "
+                           f"{value['parent_org_code']} {value['parent_org_name'] or ''}; "
+                           f"parent address PCON: {value['parent_address_pcon24cd'] or 'Unmapped'}")
         if value["organisation_type"] == "gp_practice":
             typer.echo(f"Registered patients: {value['registered_patients_total']}; "
                        f"unmapped: {value['unmapped_patient_count']}")

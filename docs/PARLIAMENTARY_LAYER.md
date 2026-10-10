@@ -40,9 +40,11 @@ The member text and numbers are generated at build time. The readable commands s
 | --- | --- | --- |
 | `site_location` | An active ODS code's address postcode maps to PCON24. | Null. |
 | `registered_patients` | A GP practice has patients in an LSOA21 best-fit allocation to PCON24. | Count, share of the full practice list and extract period. |
-| `operating_relationship` | An active ODS site has an explicit RE6 operator code whose **parent address** maps to PCON24. This does not claim the operator serves all residents there. | Null. |
+| `operating_relationship` | An active ODS site has an explicit RE6 operator code that is effective at its ODS source snapshot, and the **parent address** maps to PCON24. This does not claim the operator serves all residents there. | Null. |
 
 One organisation/constituency can have multiple rows with different bases. They remain separate; no score or combined catchment is calculated. `site_in_constituency` compares the organisation/site's own address PCON with the relationship PCON, so a patient row may be true or false. An unresolved RE6 target remains in `organisation_parliamentary_profile` but cannot be assigned a parent-address constituency. Inactive ODS records retain a profile but do not produce current site or operator relationship rows. A patient-only GP code absent from the selected ODS dimension still appears in the `registered_patients` relationship table; its name and address are null rather than inferred.
+
+An RE6 link is effective when its reported start date is on or before the organisation's ODS `source_snapshot_date` and its end date is on or after that date; missing bounds are open. Both boundaries are inclusive. Only active organisations with effective RE6 links produce current `operating_relationship` rows. Those rows carry the original RE6 start/end dates, source snapshot and `relationship_temporal_status=current`. The organisation profile and per-code JSON retain expired and future source RE6 records with `parent_relationship_temporal_status=expired` or `future`, their dates and raw parent address. For these records, `parent_relationship_basis`, `parent_current_address_pcon24cd` and parent MP fields are null, and the readable CLI explicitly says the source link is not current parliamentary evidence. `parent_address_pcon24cd` is retained as labelled source context, not a current parliamentary link. An inactive organisation may have an otherwise effective RE6 date range; `parent_relationship_current_at_snapshot=false` and its current parliamentary fields remain null.
 
 `pcon_parliamentary_brief` has one row per PCON24, with member/vacancy, site counts by organisation type, serving practice count and mapped patient total. `mp_nhs_relationship` is the named/listable detail behind those counts. Per-PCON JSON separates `site_organisations`, `serving_gp_practices` and `operating_relationships`. `organisation_parliamentary_profile` has one row for every expanded ODS code and a JSON list of GP-only served constituencies, while the per-ODS JSON exposes the same list as an array and includes its individual relationships. The GP's total and `unmapped_patient_count` preserve the full source denominator; constituency totals include mapped patients only.
 
@@ -58,7 +60,7 @@ nhs-geo build --offline
 nhs-geo qa
 ```
 
-The snapshot date and retrieval timestamp are visible in the member dimension, manifest and parliamentary QA. The MP shown is **current as of that snapshot**, not necessarily the MP at the older GP patient extract date or ODS source date. A later member refresh changes the association without rewriting historical patient counts. `nhs-geo qa` validates the saved tables and JSON coverage offline.
+The snapshot date and retrieval timestamp are visible in the member dimension, manifest and parliamentary QA. The MP shown is **current as of that snapshot**, not necessarily the MP at the older GP patient extract date or ODS source date. A later member refresh changes the association without rewriting historical patient counts. `nhs-geo qa` validates the saved tables and JSON coverage offline. The build captures its Git SHA and dirty state before creating staging files, including when `--processed-dir` is a custom path inside the repository.
 
 ## Limits
 

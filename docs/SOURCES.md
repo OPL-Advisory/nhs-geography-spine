@@ -20,6 +20,8 @@ The member dimension is independently refreshed with `nhs-geo fetch --refresh-me
 
 ODS column 15 (`TargetOrgCode`) is optional in `ebranchs`, `ets` and `eccgsite`. A row without it remains a site with null RE6 code and dates. `provider_coverage.missing_re6_operator_rows` identifies these rows; an active omission gives a QA warning. RE6 dates and parent type are validated when a target code is present.
 
+The v0.3 parliamentary layer treats an active RE6 link as current evidence only when its start/end dates contain that organisation's ODS source snapshot date (inclusive, with missing bounds open). Expired and future links remain in the organisation profile as dated source context and are excluded from current MP relationships and constituency operating lists.
+
 ## Geography and data-quality meaning
 
 The postcode directory's `PCON` is a **direct postcode allocation** for the July 2024 constituency geography. A postcode can span addresses on both sides of a boundary; ONS assigns it from the postcode's reference location. The fallback from postcode LSOA to PCON is visibly marked and can differ from a direct allocation. Registered patients are allocated by the ONS **best-fit** LSOA lookup, which is not exact address-level or polygon-intersection geography.

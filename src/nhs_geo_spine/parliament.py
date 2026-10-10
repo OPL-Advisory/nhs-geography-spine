@@ -113,6 +113,24 @@ def _member_fields(row: dict) -> dict:
                                          "member_status", "source_snapshot_date")}
 
 
+def _re6_temporal_status(org: dict) -> str | None:
+    """Classify a reported RE6 against its own ODS snapshot, with inclusive dates."""
+    if org["relationship_type"] != "RE6" or not org["parent_org_code"]:
+        return None
+    snapshot = org["source_snapshot_date"]
+    if snapshot is None:
+        raise ValueError(f"RE6 relationship has no source snapshot: {org['org_code']}")
+    start = org["relationship_start_date"]
+    end = org["relationship_end_date"]
+    if start is not None and end is not None and end < start:
+        raise ValueError(f"RE6 relationship has inverted dates: {org['org_code']}")
+    if start is not None and start > snapshot:
+        return "future"
+    if end is not None and end < snapshot:
+        return "expired"
+    return "effective"
+
+
 def make_parliamentary_tables(members: pl.DataFrame, org_profile: pl.DataFrame,
                               patients: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame,
                                                                 pl.DataFrame]:
@@ -126,7 +144,10 @@ def make_parliamentary_tables(members: pl.DataFrame, org_profile: pl.DataFrame,
             basis: str, address_code: str | None, patients_count: int | None,
             patient_share: float | None, period: str | None,
             parent_code: str | None, evidence_version: str | None,
-            evidence_snapshot_date: date) -> None:
+            evidence_snapshot_date: date,
+            relationship_start_date: date | None = None,
+            relationship_end_date: date | None = None,
+            relationship_temporal_status: str | None = None) -> None:
         member = member_by_code[pcon_code]
         relationships.append({
             "pcon24cd": pcon_code, "pcon24nm": member["pcon24nm"],
@@ -139,12 +160,18 @@ def make_parliamentary_tables(members: pl.DataFrame, org_profile: pl.DataFrame,
             "share_of_practice_list": patient_share,
             "patient_source_period": period if basis == "registered_patients" else None,
             "relationship_source_period": period,
+            "relationship_start_date": relationship_start_date,
+            "relationship_end_date": relationship_end_date,
+            "relationship_temporal_status": relationship_temporal_status,
             "source_snapshot_date": evidence_snapshot_date,
             "member_source_snapshot_date": source_date,
             "evidence_source_version": evidence_version,
         })
 
+    re6_status_by_org: dict[str, str | None] = {}
     for org in org_profile.iter_rows(named=True):
+        temporal_status = _re6_temporal_status(org)
+        re6_status_by_org[org["org_code"]] = temporal_status
         if org["status"] != "ACTIVE":
             continue
         address = org["address_pcon24cd"]
@@ -153,14 +180,15 @@ def make_parliamentary_tables(members: pl.DataFrame, org_profile: pl.DataFrame,
                 "site_location", address, None, None, str(org["source_snapshot_date"]), None,
                 org["source_version"], org["source_snapshot_date"])
         parent_code = org["parent_org_code"]
-        if org["relationship_type"] == "RE6" and parent_code:
+        if temporal_status == "effective" and parent_code:
             parent = org_by_code.get(parent_code)
             parent_address = parent["address_pcon24cd"] if parent else None
             if parent_address in member_by_code:
                 add(parent_address, org["org_code"], org["org_name"],
                     org["organisation_type"], "operating_relationship", address,
                     None, None, str(org["relationship_start_date"] or org["source_snapshot_date"]),
-                    parent_code, org["source_version"], org["source_snapshot_date"])
+                    parent_code, org["source_version"], org["source_snapshot_date"],
+                    org["relationship_start_date"], org["relationship_end_date"], "current")
 
     served_by_org: dict[str, list[dict]] = defaultdict(list)
     unmapped_by_org: dict[str, int] = defaultdict(int)
@@ -194,7 +222,10 @@ def make_parliamentary_tables(members: pl.DataFrame, org_profile: pl.DataFrame,
         code = org["org_code"]
         address = org["address_pcon24cd"]
         member = member_by_code.get(address)
-        parent_member = member_by_code.get(org["parent_address_pcon24cd"])
+        temporal_status = re6_status_by_org[code]
+        current_parent = org["status"] == "ACTIVE" and temporal_status == "effective"
+        parent_member = (member_by_code.get(org["parent_address_pcon24cd"])
+                         if current_parent else None)
         is_gp = org["organisation_type"] == "gp_practice"
         served = sorted(served_by_org.get(code, []), key=lambda r: r["pcon24cd"])
         profiles.append({
@@ -206,8 +237,12 @@ def make_parliamentary_tables(members: pl.DataFrame, org_profile: pl.DataFrame,
             "parent_address_member_id": parent_member["member_id"] if parent_member else None,
             "parent_address_member_name": parent_member["member_name"] if parent_member else None,
             "parent_address_member_status": parent_member["member_status"] if parent_member else None,
-            "parent_relationship_basis": "operating_relationship" if org["relationship_type"] == "RE6"
-                                         else None,
+            "parent_relationship_temporal_status": temporal_status,
+            "parent_relationship_current_at_snapshot": (
+                current_parent if temporal_status is not None else None),
+            "parent_current_address_pcon24cd": (
+                org["parent_address_pcon24cd"] if current_parent else None),
+            "parent_relationship_basis": "operating_relationship" if current_parent else None,
             "registered_patients_total": total_by_org.get(code) if is_gp else None,
             "unmapped_patient_count": unmapped_by_org.get(code, 0) if code in total_by_org else None,
             "served_constituency_count": len(served) if is_gp else None,
@@ -310,6 +345,52 @@ def validate_parliamentary_tables(members: pl.DataFrame, brief: pl.DataFrame,
             | pl.col("served_constituency_count").is_not_null()
             | pl.col("unmapped_patient_count").is_not_null()).height:
         raise ValueError("Non-GP parliamentary profile carries patient fields")
+    member_by_code = {row["pcon24cd"]: row for row in members.iter_rows(named=True)}
+    profile_by_code = {row["org_code"]: row for row in profile.iter_rows(named=True)}
+    expected_operating: dict[tuple[str, str], dict] = {}
+    active_re6_statuses: Counter[str] = Counter()
+    for org in org_profile.iter_rows(named=True):
+        code = org["org_code"]
+        saved = profile_by_code[code]
+        temporal_status = _re6_temporal_status(org)
+        current = org["status"] == "ACTIVE" and temporal_status == "effective"
+        if temporal_status is not None and org["status"] == "ACTIVE":
+            active_re6_statuses[temporal_status] += 1
+        expected_parent_pcon = org["parent_address_pcon24cd"] if current else None
+        expected_parent_member = member_by_code.get(expected_parent_pcon)
+        if (saved["relationship_start_date"] != org["relationship_start_date"]
+                or saved["relationship_end_date"] != org["relationship_end_date"]
+                or saved["parent_relationship_temporal_status"] != temporal_status
+                or saved["parent_relationship_current_at_snapshot"] != (
+                    current if temporal_status is not None else None)
+                or saved["parent_relationship_basis"] != (
+                    "operating_relationship" if current else None)
+                or saved["parent_current_address_pcon24cd"] != expected_parent_pcon
+                or saved["parent_address_member_id"] != (
+                    expected_parent_member["member_id"] if expected_parent_member else None)
+                or saved["parent_address_member_name"] != (
+                    expected_parent_member["member_name"] if expected_parent_member else None)
+                or saved["parent_address_member_status"] != (
+                    expected_parent_member["member_status"] if expected_parent_member else None)):
+            raise ValueError(f"Parliamentary profile has non-current RE6 context: {code}")
+        if current and expected_parent_pcon in member_by_code:
+            expected_operating[(code, expected_parent_pcon)] = org
+    operating = links.filter(pl.col("relationship_basis") == "operating_relationship")
+    if operating.height != len(expected_operating):
+        raise ValueError("Current RE6 parliamentary relationship count differs from source")
+    for link in operating.iter_rows(named=True):
+        org = expected_operating.get((link["org_code"], link["pcon24cd"]))
+        if (org is None or link["parent_org_code"] != org["parent_org_code"]
+                or link["relationship_start_date"] != org["relationship_start_date"]
+                or link["relationship_end_date"] != org["relationship_end_date"]
+                or link["relationship_temporal_status"] != "current"
+                or link["source_snapshot_date"] != org["source_snapshot_date"]):
+            raise ValueError("Parliamentary relationship contains non-current RE6 evidence")
+    if links.filter(pl.col("relationship_basis") != "operating_relationship").filter(
+            pl.col("relationship_start_date").is_not_null()
+            | pl.col("relationship_end_date").is_not_null()
+            | pl.col("relationship_temporal_status").is_not_null()).height:
+        raise ValueError("Non-RE6 parliamentary relationship carries RE6 dates")
     expected_by_practice: dict[str, list[tuple[str, int]]] = defaultdict(list)
     source_totals: dict[str, int] = defaultdict(int)
     for row in patients.iter_rows(named=True):
@@ -350,6 +431,7 @@ def validate_parliamentary_tables(members: pl.DataFrame, brief: pl.DataFrame,
         "brief_rows": brief.height, "organisation_profile_rows": profile.height,
         "relationship_rows": links.height,
         "relationships_by_basis": dict(sorted(Counter(links["relationship_basis"]).items())),
+        "active_re6_by_temporal_status": dict(sorted(active_re6_statuses.items())),
         "mapped_patients_in_relationships": int(actual["patient_count"].sum() or 0),
         "mapped_patients_in_source_bridge": int(expected["patient_count"].sum() or 0),
         "patient_difference": 0,

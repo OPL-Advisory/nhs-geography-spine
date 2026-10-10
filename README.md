@@ -53,7 +53,7 @@ The frozen source configuration is [config/sources.yml](config/sources.yml). Sou
 
 The `pcon_gp_patient_links` view's constituency share denominator is the mapped registered patients in that constituency **in this source file**. It is not a census population estimate. The practice profile's outside-address share uses the full source practice list, including the explicit unmapped bucket in the denominator.
 
-`pcon_provider_summary` includes all active mapped types in `pcon_nhs_organisations`, including ICB and Sub ICB commissioner codes. It counts ODS codes, not distinct premises or hospitals. `organisation_pcon_profile` is an **address** profile, not a patient or service catchment. The existing GP-only files and patient views retain their v0.1 meaning. The v0.3 evidence model, member refresh and limitations are in [docs/PARLIAMENTARY_LAYER.md](docs/PARLIAMENTARY_LAYER.md); source report semantics are in [docs/SOURCES.md](docs/SOURCES.md).
+`pcon_provider_summary` includes all active mapped types in `pcon_nhs_organisations`, including ICB and Sub ICB commissioner codes. It counts ODS codes, not distinct premises or hospitals. `organisation_pcon_profile` is an **address** profile, not a patient or service catchment. The existing GP-only files and patient views retain their v0.1 meaning. Current v0.3 operating links require the reported RE6 dates to be effective at the ODS snapshot; expired and future links remain explicitly labelled in organisation profiles. The v0.3 evidence model, member refresh and limitations are in [docs/PARLIAMENTARY_LAYER.md](docs/PARLIAMENTARY_LAYER.md); source report semantics are in [docs/SOURCES.md](docs/SOURCES.md).
 
 ## Verified October 2026 build
 
