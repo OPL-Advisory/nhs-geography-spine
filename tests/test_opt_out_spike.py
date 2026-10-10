@@ -64,6 +64,13 @@ def test_practice_join_reasons_and_missing_not_zero(tmp_path: Path) -> None:
     assert by_code["A81001"]["spine_address_pcon24cd_context_only"] == "E14001063"
     assert "constituency_opt_out" not in str(result)
     assert "source_sha256" in result
+    assert result["source_date_range"] == {"first": "2026-08-05", "last": "2026-08-12",
+                                           "distinct_dates": 2}
+    assert result["source_total_rows"] == 14
+    assert result["source_version"] is None
+    assert result["source_retrieved_at"] is None
+    assert len(result["source_provenance_caveats"]) == 3
+    assert result["data_quality_anomalies"] == {}
 
 
 @pytest.mark.parametrize("extra,reason", [
@@ -77,17 +84,40 @@ def test_duplicate_official_grain_fails(tmp_path: Path, extra: list, reason: str
         analyse(source, _profiles(), date="2026-08-05")
 
 
-def test_conflicting_rate_or_count_and_wrong_date_fail(tmp_path: Path) -> None:
+def test_anomalous_static_denominator_values_are_retained_and_flagged(tmp_path: Path) -> None:
     source = tmp_path / "inconsistent.csv"
     rows = [(code, name, measure, "80%" if code == "A81001" and measure == "Opt-out rate"
              else value) for code, name, measure, value in _rows()]
     _csv(source, rows)
-    with pytest.raises(ValueError, match="disagrees"):
-        analyse(source, _profiles(), date="2026-08-05")
+    result = analyse(source, _profiles(), date="2026-08-05",
+                     source_version="test export", retrieved_at="2026-08-06T10:00:00Z",
+                     list_size_vintage="2026-08-05")
+    assert result["source_version"] == "test export"
+    assert result["source_retrieved_at"] == "2026-08-06T10:00:00Z"
+    assert result["source_provenance_caveats"] == []
+    assert result["data_quality_anomalies"] == {
+        "source_rate_disagrees_with_count_over_source_list_size": 1,
+    }
+    assert next(row for row in result["sample"] if row["practice_code"] == "A81001")[
+        "opt_out_rate"] == 0.8
     with pytest.raises(ValueError, match="No NHS opt-out rows"):
         analyse(source, _profiles(), date="2026-07-01")
     rows = [(code, name, measure, "110" if code == "A81001" and measure == "Opt-out"
+             else "110" if code == "A81001" and measure == "Opt-out rate"
              else value) for code, name, measure, value in _rows()]
     _csv(source, rows)
-    with pytest.raises(ValueError, match="exceeds"):
-        analyse(source, _profiles(), date="2026-08-05")
+    result = analyse(source, _profiles(), date="2026-08-05")
+    assert result["data_quality_anomalies"] == {
+        "count_exceeds_source_list_size": 1, "source_rate_above_100_percent": 1,
+    }
+    row = next(row for row in result["sample"] if row["practice_code"] == "A81001")
+    assert row["opt_out_count"] == 110 and row["opt_out_rate"] == 1.1
+    assert row["data_quality_flags"] == ["count_exceeds_source_list_size",
+                                        "source_rate_above_100_percent"]
+
+
+def test_original_retrieval_timestamp_requires_timezone(tmp_path: Path) -> None:
+    source = tmp_path / "official-shaped.csv"
+    _csv(source, _rows())
+    with pytest.raises(ValueError, match="timezone"):
+        analyse(source, _profiles(), date="2026-08-05", retrieved_at="2026-08-06T10:00:00")

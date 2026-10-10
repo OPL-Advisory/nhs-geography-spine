@@ -219,6 +219,9 @@ def build_site(processed: Path, destination: Path, *, validate: bool = True) -> 
         source_hashes: dict[str, str] = {}
         asset_hashes: dict[str, str] = {}
         index: dict[str, list] = {"constituencies": [], "organisations": []}
+        available_org_codes = {
+            path.stem for path in (processed / "json" / "organisations").glob("*.json")
+        }
         for kind, folder, expected, projector in (
             ("constituencies", "constituencies", counts["pcon24_code_rows"], _constituency),
             ("organisations", "organisations", counts["all_ods_organisation_rows"], _organisation),
@@ -231,6 +234,13 @@ def build_site(processed: Path, destination: Path, *, validate: bool = True) -> 
                 content = path.read_bytes()
                 source = json.loads(content)
                 detail = projector(source)
+                if kind == "constituencies":
+                    for practice in detail["practices"]:
+                        practice["profile_available"] = practice["org_code"] in available_org_codes
+                else:
+                    detail["operator"]["profile_available"] = (
+                        detail["operator"]["code"] in available_org_codes
+                    )
                 code = detail["code"]
                 if code != path.stem or not CODE.fullmatch(code) or code in seen:
                     raise ValueError(f"Invalid or duplicate {kind} code: {path}")

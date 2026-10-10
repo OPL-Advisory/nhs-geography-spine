@@ -144,10 +144,13 @@ function renderConstituency(data) {
   else pagedList(patientSection, data.practices, (row) => {
     const item = el('li');
     const line = el('div', 'list-main');
-    append(line, link('organisation', row.org_code, row.org_name || row.org_code),
-      el('span', 'code', row.org_code));
+    append(line, row.profile_available
+      ? link('organisation', row.org_code, row.org_name || row.org_code)
+      : el('span', '', row.org_name || row.org_code), el('span', 'code', row.org_code));
     append(item, line, el('span', 'list-meta',
       `${registrations(row.registered_patients)} · ${share(row.share_of_practice_list)} of practice list`));
+    if (!row.profile_available) item.append(el('span', 'list-meta',
+      'Practice profile unavailable in this ODS snapshot'));
     return item;
   });
   root.append(patientSection);
@@ -194,9 +197,11 @@ function renderOrganisation(data) {
   if (!data.operator.code) operator.append(empty('No RE6 operator code is recorded for this organisation in the selected ODS report.'));
   else {
     const identity = el('p');
-    append(identity, link('organisation', data.operator.code,
-      data.operator.name || data.operator.code),
-    document.createTextNode(` · ${data.operator.code}`));
+    if (data.operator.profile_available) append(identity,
+      link('organisation', data.operator.code, data.operator.name || data.operator.code),
+      document.createTextNode(` · ${data.operator.code}`));
+    else append(identity, el('span', 'code', data.operator.code),
+      el('span', 'list-meta', 'Operator unresolved in this ODS snapshot'));
     operator.append(identity);
     const temporal = data.operator.temporal_status || 'undated';
     operator.append(el('p', data.operator.current_at_snapshot ? 'temporal-current' : 'temporal-old',
@@ -330,6 +335,7 @@ searchInput.addEventListener('keydown', (event) => {
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     if (!matches.length) return;
     event.preventDefault();
+    if (resultsHost.hidden) drawResults();
     setActive(nextActiveIndex(event.key, active, matches.length));
   } else if (event.key === 'Enter' && matches.length && !resultsHost.hidden) {
     event.preventDefault();

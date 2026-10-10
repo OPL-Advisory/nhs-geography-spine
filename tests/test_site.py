@@ -2,11 +2,15 @@
 
 import hashlib
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
-from test_parliament import _build
+from test_parliament import _build, _parliament_fixture
+from test_pipeline import _csv
 
+from nhs_geo_spine.build import build_pipeline
+from nhs_geo_spine.sources import fetch_sources, load_config
 from web import build as site
 
 
@@ -50,6 +54,48 @@ def test_site_routes_dates_vacancy_and_separate_evidence(tmp_path: Path) -> None
     trust = _detail(destination, release, "organisation", "R00001")
     assert trust["served_constituencies"] == []
     assert trust["address"]["member_status"] == "vacant"
+
+
+def test_patient_only_practice_and_unresolved_re6_have_no_missing_profile_links(
+    tmp_path: Path,
+) -> None:
+    config, raw, _ = _parliament_fixture(tmp_path)
+    patients = Path(load_config(config)["gp_registered_patients_lsoa"].url.removeprefix("file://"))
+    member = "gp-reg-pat-prac-lsoa-all.csv"
+    with zipfile.ZipFile(patients) as archive:
+        original = archive.read(member)
+    extra = _csv([["GP_PRAC_PAT_LIST", "2026-07-01", "A81999", "Patient-only practice",
+                   "E01000001", "ALL", "7"]])
+    with zipfile.ZipFile(patients, "w") as archive:
+        archive.writestr(member, original + extra)
+    fetch_sources(load_config(config), raw)
+    processed = tmp_path / "processed"
+    build_pipeline(config, raw, processed, offline=True)
+    destination = tmp_path / "site"
+    release = site.build_site(processed, destination)
+
+    constituency = _detail(destination, release, "constituency", "E14001063")
+    patient_only = next(row for row in constituency["practices"]
+                        if row["org_code"] == "A81999")
+    assert patient_only["registered_patients"] == 7
+    assert patient_only["profile_available"] is False
+    assert not (destination / release["details_base"] / "organisations" / "A81999.json").exists()
+    assert next(row for row in constituency["practices"] if row["org_code"] == "A81001")[
+        "profile_available"] is True
+
+    unresolved = _detail(destination, release, "organisation", "B00002")
+    assert unresolved["operator"]["code"] == "Y00001"
+    assert unresolved["operator"]["profile_available"] is False
+    assert not (destination / release["details_base"] / "organisations" / "Y00001.json").exists()
+    resolved = _detail(destination, release, "organisation", "B00001")
+    assert resolved["operator"]["profile_available"] is True
+    for code, *_ in json.loads((destination / release["indexes"]["constituencies"]["path"])
+                               .read_text(encoding="utf-8")):
+        detail = _detail(destination, release, "constituency", code)
+        for row in detail["practices"]:
+            exists = (destination / release["details_base"] / "organisations" /
+                      f"{row['org_code']}.json").exists()
+            assert row["profile_available"] is exists
 
 
 def test_site_build_is_deterministic_and_archive_rolls_back(tmp_path: Path) -> None:

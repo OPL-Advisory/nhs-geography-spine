@@ -69,10 +69,6 @@ def _rate(raw: str, count: int | None, list_size: int | None) -> tuple[str, floa
         rate = min(candidates, key=lambda candidate: abs(candidate - expected))
     else:
         return "unknown_unit", None
-    if rate > 1:
-        raise ValueError(f"NHS opt-out rate above 100%: {raw!r}")
-    if expected is not None and abs(rate - expected) > 0.002:
-        raise ValueError(f"NHS opt-out rate disagrees with its own list size: {raw!r}")
     return "available", rate
 
 
@@ -87,9 +83,15 @@ def load_spine_profiles(path: Path) -> dict[str, dict]:
 
 def analyse(csv_path: Path, profiles: dict[str, dict], *, date: str,
             source_url: str = "https://digital.nhs.uk/dashboards/national-data-opt-out-open-data",
+            source_version: str | None = None, retrieved_at: str | None = None,
+            list_size_vintage: str | None = None,
             sample_limit: int = 20) -> dict:
     """Join one official practice/date grain by exact ODS code, retaining absences."""
     selected = _date(date)
+    if retrieved_at is not None:
+        timestamp = datetime.fromisoformat(retrieved_at)
+        if timestamp.tzinfo is None:
+            raise ValueError("Source retrieval timestamp must include a timezone")
     hasher = hashlib.sha256()
     with csv_path.open("rb") as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
@@ -98,13 +100,19 @@ def analyse(csv_path: Path, profiles: dict[str, dict], *, date: str,
     rows: dict[str, dict[str, str]] = defaultdict(dict)
     names: dict[str, str] = {}
     selected_rows = 0
+    total_rows = 0
+    source_dates: dict[str, str] = {}
     with csv_path.open(newline="", encoding="utf-8-sig") as stream:
         reader = csv.DictReader(stream)
         missing = REQUIRED - set(reader.fieldnames or ())
         if missing:
             raise ValueError(f"Missing NHS geography CSV columns: {sorted(missing)}")
         for line, row in enumerate(reader, 2):
-            if _date(row["Date"]) != selected:
+            total_rows += 1
+            raw_date = row["Date"]
+            if raw_date not in source_dates:
+                source_dates[raw_date] = _date(raw_date)
+            if source_dates[raw_date] != selected:
                 continue
             selected_rows += 1
             code = row["Practice Code"].strip().upper()
@@ -128,13 +136,20 @@ def analyse(csv_path: Path, profiles: dict[str, dict], *, date: str,
     output = []
     joins: Counter[str] = Counter()
     states: Counter[str] = Counter()
+    anomalies: Counter[str] = Counter()
     for code in sorted(names):
         measures = rows[code]
         count_state, count = _count(measures.get("opt_out_count", ""))
         size_state, size = _count(measures.get("list_size", ""))
-        if count is not None and size is not None and count > size:
-            raise ValueError(f"Opt-out count exceeds its own list size for {code}")
         rate_state, rate = _rate(measures.get("opt_out_rate", ""), count, size)
+        row_anomalies = []
+        if count is not None and size is not None and count > size:
+            row_anomalies.append("count_exceeds_source_list_size")
+        if rate is not None and rate > 1:
+            row_anomalies.append("source_rate_above_100_percent")
+        if rate is not None and count is not None and size and abs(rate - count / size) > 0.002:
+            row_anomalies.append("source_rate_disagrees_with_count_over_source_list_size")
+        anomalies.update(row_anomalies)
         profile = profiles.get(code)
         if profile is None:
             join = "not_in_spine_snapshot"
@@ -153,17 +168,34 @@ def analyse(csv_path: Path, profiles: dict[str, dict], *, date: str,
             "opt_out_count": count, "opt_out_count_state": count_state,
             "official_list_size": size, "official_list_size_state": size_state,
             "opt_out_rate": rate, "opt_out_rate_state": rate_state,
+            "data_quality_flags": row_anomalies,
             "join_reason": join,
             "spine_address_pcon24cd_context_only": profile["address_pcon24cd"]
             if profile and profile["organisation_type"] == "gp_practice" else None,
         })
     return {
         "prototype_status": "offline_research_only_not_for_publication",
-        "source_url": source_url, "source_sha256": digest, "date": selected,
+        "source_url": source_url, "source_file_name": csv_path.name,
+        "source_sha256": digest, "source_version": source_version,
+        "source_retrieved_at": retrieved_at,
+        "source_provenance_caveats": [
+            caveat for missing, caveat in (
+                (source_version is None, "Original export version was not supplied."),
+                (retrieved_at is None, "Original retrieval timestamp was not supplied; local file timestamps are not proof of retrieval time."),
+                (list_size_vintage is None, "Practice list-size vintage was not verified for this source file."),
+            ) if missing
+        ],
+        "source_date_range": {"first": min(source_dates.values()),
+                              "last": max(source_dates.values()),
+                              "distinct_dates": len(set(source_dates.values()))},
+        "source_total_rows": total_rows, "date": selected,
         "grain": "one GP practice ODS code at one official opt-out date",
+        "list_size_vintage": list_size_vintage,
+        "rate_caveat": "Source rates use the source list size; verify its vintage before population-rate claims. Anomalous values are retained, not treated as choice probabilities.",
         "source_rows_on_date": selected_rows, "practice_codes": len(output),
         "join_reasons": dict(sorted(joins.items())),
         "measure_states": dict(sorted(states.items())),
+        "data_quality_anomalies": dict(sorted(anomalies.items())),
         "sample": output[:sample_limit],
         "constraint": "No constituency opt-out counts or rates are emitted; address PCON is context only.",
     }
@@ -175,9 +207,15 @@ def main() -> None:
     parser.add_argument("--profiles", type=Path, required=True,
                         help="v0.3 organisation_parliamentary_profile.parquet")
     parser.add_argument("--date", required=True, help="One explicit official snapshot date")
+    parser.add_argument("--source-url", default="https://digital.nhs.uk/dashboards/national-data-opt-out-open-data")
+    parser.add_argument("--source-version", help="Original export version, if recorded")
+    parser.add_argument("--retrieved-at", help="Original retrieval timestamp with timezone, if recorded")
+    parser.add_argument("--list-size-vintage", help="Verified source list-size vintage, if known")
     parser.add_argument("--output", type=Path, default=Path("data/opt-out-spike/practice-sample.json"))
     args = parser.parse_args()
-    result = analyse(args.geography_csv, load_spine_profiles(args.profiles), date=args.date)
+    result = analyse(args.geography_csv, load_spine_profiles(args.profiles), date=args.date,
+                     source_url=args.source_url, source_version=args.source_version,
+                     retrieved_at=args.retrieved_at, list_size_vintage=args.list_size_vintage)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"{result['practice_codes']} official practice codes; join reasons: {result['join_reasons']}")

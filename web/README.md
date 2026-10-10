@@ -14,6 +14,8 @@ python -m http.server 8765 --bind 127.0.0.1 --directory web/dist
 
 Open `http://127.0.0.1:8765/`. Search by constituency name/PCON24 code or organisation name/ODS code; the typeahead supports arrow keys, Enter, Escape, Tab and a visible focus treatment. Direct routes can be copied, for example `?view=constituency&code=E14001063` and `?view=organisation&code=A81001`. The home page loads the shell and `release.json`; it fetches the two indexes only when someone types, and fetches one detail on navigation. Site and patient relationships are never merged into one generic “served by” statistic.
 
+A GP practice present only in the patient extract stays visible in constituency results with an unavailable ODS profile label and no detail link. An unresolved RE6 operator similarly keeps its source code without a link to a missing ODS page. After Escape closes search results, either arrow key reopens the existing matches so Enter can select one.
+
 `release.json` pins a content-addressed snapshot, input manifest SHA-256, source code SHA, QA state, row counts, dates and coverage warnings. `asset-hashes.json` records every accepted v0.3 source JSON hash, generated detail/index hash and static shell hash. The compressed tarball is a deterministic candidate and rollback artifact. Never commit the generated tree or raw postcode data to Git.
 
 ## Measured candidate and budgets
