@@ -256,6 +256,62 @@ def test_eccgsite_accepts_ro326_only_parent(tmp_path: Path) -> None:
         """).fetchone() == ("00P", "ICB commissioning proxy", "icb_commissioning_proxy", "RE6")
 
 
+@pytest.mark.parametrize("source_key,code,organisation_type,report_name", [
+    ("ods_gp_branches", "B00003", "gp_branch_surgery", "ebranchs"),
+    ("ods_nhs_trust_sites", "T00002", "nhs_trust_site", "ets"),
+    ("ods_sub_icb_sites", "C00003", "sub_icb_location_site", "eccgsite"),
+])
+def test_optional_missing_re6_operator_is_reported_without_dropping_site(
+    tmp_path: Path, source_key: str, code: str, organisation_type: str, report_name: str,
+) -> None:
+    config_path, raw = _provider_fixture(tmp_path)
+    config = load_config(config_path)
+    source = Path(config[source_key].url.removeprefix("file://"))
+    row = _report(code, "Site without reported operator", "SW1A 2AA")
+    if report_name != "ets":
+        row[15], row[16] = "not-a-date", "not-a-date"
+    source.write_bytes(source.read_bytes() + _csv([row]))
+    fetch_sources(config, raw)
+    processed = tmp_path / "processed"
+    report = build_pipeline(config_path, raw, processed, offline=True)
+    coverage = report["provider_coverage"]
+    assert coverage["missing_active_re6_operator_rows"] == 1
+    assert coverage["missing_re6_operator_rows"] == [{
+        "org_code": code, "organisation_type": organisation_type,
+        "source_report": report_name, "status": "ACTIVE",
+    }]
+    manifest = json.loads((processed / "build_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["qa_summary"]["provider_missing_active_re6_operators"] == 1
+    site = pl.read_parquet(processed / "all_nhs_organisation_sites.parquet").filter(
+        pl.col("org_code") == code
+    ).row(0, named=True)
+    assert all(site[field] is None for field in (
+        "parent_org_code", "operating_org_code", "relationship_type",
+        "relationship_start_date", "relationship_end_date",
+    ))
+    assert audit_outputs(processed)["provider_coverage"]["missing_re6_operator_rows"] == (
+        coverage["missing_re6_operator_rows"]
+    )
+    with duckdb.connect(str(processed / "nhs_geography.duckdb"), read_only=True) as connection:
+        assert connection.execute("""
+            SELECT parent_org_code, relationship_type, relationship_start_date,
+                   relationship_end_date
+            FROM pcon_nhs_organisations WHERE org_code = ?
+        """, [code]).fetchone() == (None, None, None, None)
+
+
+def test_present_re6_operator_still_validates_relationship_dates(tmp_path: Path) -> None:
+    config_path, raw = _provider_fixture(tmp_path)
+    config = load_config(config_path)
+    source = Path(config["ods_gp_branches"].url.removeprefix("file://"))
+    row = _report("B00003", "Branch with invalid RE6 date", "SW1A 2AA", parent="A81001")
+    row[15] = "not-a-date"
+    source.write_bytes(source.read_bytes() + _csv([row]))
+    fetch_sources(config, raw)
+    with pytest.raises(ValueError, match="invalid YYYYMMDD date"):
+        build_pipeline(config_path, raw, tmp_path / "processed", offline=True)
+
+
 @pytest.mark.parametrize("role", ["RO999", "RO319|RO999", "RO319|"])
 def test_eccg_unexpected_role_fails_loudly(tmp_path: Path, role: str) -> None:
     config_path, raw = _provider_fixture(tmp_path)

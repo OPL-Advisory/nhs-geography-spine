@@ -289,6 +289,8 @@ def _build_bundle(config: dict[str, Source], ledger: dict, raw_dir: Path,
                            "active_unmapped_rows"],
                        "provider_unresolved_active_re6_relationships": report[
                            "provider_coverage"]["unresolved_active_re6_relationships"],
+                       "provider_missing_active_re6_operators": report[
+                           "provider_coverage"]["missing_active_re6_operator_rows"],
                        "active_child_parent_not_active": len(report["provider_coverage"][
                            "active_child_parent_not_active"])},
     }

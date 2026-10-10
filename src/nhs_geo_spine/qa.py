@@ -57,6 +57,10 @@ def create_provider_qa(organisations: pl.DataFrame, bridge: pl.DataFrame,
                                   "commissioning_hub", "icb_commissioning_proxy",
                                   "former_clinical_commissioning_group"},
     }
+    missing_operator = organisations.filter(
+        pl.col("organisation_type").is_in(list(expected_parent_types))
+        & pl.col("parent_org_code").is_null()
+    )
     parent_lookup = organisations.select(
         pl.col("org_code").alias("parent_org_code"),
         pl.col("organisation_type").alias("parent_organisation_type"),
@@ -123,6 +127,9 @@ def create_provider_qa(organisations: pl.DataFrame, bridge: pl.DataFrame,
     unresolved_rows = unresolved.select(
         "org_code", "organisation_type", "parent_org_code", "status"
     ).sort("org_code").to_dicts()
+    missing_operator_rows = missing_operator.select(
+        "org_code", "organisation_type", "source_report", "status"
+    ).sort("org_code").to_dicts()
     return {
         "organisations": organisations.height,
         "bridge_rows": bridge.height,
@@ -134,6 +141,9 @@ def create_provider_qa(organisations: pl.DataFrame, bridge: pl.DataFrame,
         "unresolved_active_re6_relationships": unresolved.filter(
             pl.col("status") == "ACTIVE").height,
         "unresolved_re6_relationships": unresolved_rows,
+        "missing_active_re6_operator_rows": missing_operator.filter(
+            pl.col("status") == "ACTIVE").height,
+        "missing_re6_operator_rows": missing_operator_rows,
         "active_child_parent_not_active": parent_status_flags,
     }
 
@@ -143,6 +153,7 @@ def attach_provider_qa(report: dict, organisations: pl.DataFrame, bridge: pl.Dat
     provider = create_provider_qa(organisations, bridge, pcon_names)
     report["provider_coverage"] = provider
     if (provider["active_unmapped_rows"] or provider["unresolved_active_re6_relationships"]
+            or provider["missing_active_re6_operator_rows"]
             or provider["active_child_parent_not_active"]):
         report["status"] = "pass_with_warnings"
     return report

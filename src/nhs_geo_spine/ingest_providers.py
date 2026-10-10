@@ -90,13 +90,11 @@ def _read_report(path: Path, report: Report, snapshot_date: str, source_version:
             opened, closed = _date(record[10]), _date(record[11])
             if opened is None or closed is not None and closed < opened:
                 raise ValueError(f"ODS {report.name} invalid legal dates at row {line}")
-            relationship_start = _date(record[15]) if report.relationship_dates else None
-            relationship_end = _date(record[16]) if report.relationship_dates else None
+            parent = (record[14].strip().upper() or None) if report.has_operator else None
+            relationship_start = _date(record[15]) if report.relationship_dates and parent else None
+            relationship_end = _date(record[16]) if report.relationship_dates and parent else None
             if relationship_start and relationship_end and relationship_end < relationship_start:
                 raise ValueError(f"ODS {report.name} invalid RE6 dates at row {line}")
-            parent = (record[14].strip().upper() or None) if report.has_operator else None
-            if report.has_operator and not parent:
-                raise ValueError(f"ODS {report.name} missing RE6 operator at row {line}")
             non_primary = ("RO318" if report.name == "eother" else
                            record[13].strip() or None)
             if report.name == "eccg":

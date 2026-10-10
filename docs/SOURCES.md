@@ -15,6 +15,8 @@
 
 `data/raw/sources_manifest.json` records the exact URL, source version/date and date meaning, UTC retrieval time, byte count and SHA-256 of each downloaded file. `data/processed/build_manifest.json` copies that provenance and adds the Git SHA, build time, row counts (including source-versus-selected `eother` rows), geography vintages and QA summary. The raw archives are never committed. ODS reports are retrieval snapshots, not immutable monthly publications. Their 27-column schemas are checked strictly. For v0.2 reports with no status column, `ACTIVE` means the legal end date is absent or after the retrieval date; it is not an independent operational-status assertion.
 
+ODS column 15 (`TargetOrgCode`) is optional in `ebranchs`, `ets` and `eccgsite`. A row without it remains a site with null RE6 code and dates. `provider_coverage.missing_re6_operator_rows` identifies these rows; an active omission gives a QA warning. RE6 dates and parent type are validated when a target code is present.
+
 ## Geography and data-quality meaning
 
 The postcode directory's `PCON` is a **direct postcode allocation** for the July 2024 constituency geography. A postcode can span addresses on both sides of a boundary; ONS assigns it from the postcode's reference location. The fallback from postcode LSOA to PCON is visibly marked and can differ from a direct allocation. Registered patients are allocated by the ONS **best-fit** LSOA lookup, which is not exact address-level or polygon-intersection geography.
