@@ -231,6 +231,31 @@ def test_eccg_proxy_role_is_classified_and_combination_preserved(tmp_path: Path)
     assert rows["00C"]["organisation_type"] == "former_clinical_commissioning_group"
 
 
+def test_eccgsite_accepts_ro326_only_parent(tmp_path: Path) -> None:
+    config_path, raw = _provider_fixture(tmp_path)
+    config = load_config(config_path)
+    unit_source = Path(config["ods_sub_icb_locations"].url.removeprefix("file://"))
+    unit_source.write_bytes(_csv([
+        _report("00A", "Sub ICB location", "SW1A 2AA", non_primary="RO319"),
+        _report("00P", "ICB commissioning proxy", "SW1A 2AA", non_primary="RO326"),
+    ]))
+    site_source = Path(config["ods_sub_icb_sites"].url.removeprefix("file://"))
+    site_source.write_bytes(_csv([
+        _report("C00001", "Sub ICB site", "SW1A 2AC", parent="00A"),
+        _report("C00002", "Proxy operated site", "SW1A 2AA", parent="00P"),
+    ]))
+    fetch_sources(config, raw)
+    processed = tmp_path / "processed"
+    report = build_pipeline(config_path, raw, processed, offline=True)
+    assert report["provider_coverage"]["resolved_re6_relationships"] == 4
+    with duckdb.connect(str(processed / "nhs_geography.duckdb"), read_only=True) as connection:
+        assert connection.execute("""
+            SELECT parent_org_code, parent_org_name, parent_organisation_type,
+                   relationship_type
+            FROM pcon_nhs_organisations WHERE org_code = 'C00002'
+        """).fetchone() == ("00P", "ICB commissioning proxy", "icb_commissioning_proxy", "RE6")
+
+
 @pytest.mark.parametrize("role", ["RO999", "RO319|RO999", "RO319|"])
 def test_eccg_unexpected_role_fails_loudly(tmp_path: Path, role: str) -> None:
     config_path, raw = _provider_fixture(tmp_path)

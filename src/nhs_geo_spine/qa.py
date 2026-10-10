@@ -54,7 +54,8 @@ def create_provider_qa(organisations: pl.DataFrame, bridge: pl.DataFrame,
         "gp_branch_surgery": {"gp_practice"},
         "nhs_trust_site": {"nhs_trust"},
         "sub_icb_location_site": {"sub_icb_location", "sub_icb_reporting_entity",
-                                  "commissioning_hub", "former_clinical_commissioning_group"},
+                                  "commissioning_hub", "icb_commissioning_proxy",
+                                  "former_clinical_commissioning_group"},
     }
     parent_lookup = organisations.select(
         pl.col("org_code").alias("parent_org_code"),
