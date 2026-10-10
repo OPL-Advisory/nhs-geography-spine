@@ -5,7 +5,7 @@ A reproducible public-data pipeline for two different questions:
 - **Site location:** which July 2024 Westminster constituency contains a coded NHS provider or commissioner address?
 - **Registered population:** which constituencies contain patients registered with a GP practice, allocated from 2021 LSOAs by the official ONS **best-fit** lookup?
 
-The two bridges are separate. Postcode allocation uses the NHS Postcode Directory's direct constituency assignment; LSOA best-fit is a statistical allocation, not a polygon intersection or evidence that a practice site is in that constituency. Trust and commissioner entries locate coded addresses only; they do not measure service catchment or commissioning responsibility. No town or organisation-name inference is used. MP membership is intentionally a separate, time-varying dimension.
+The two bridges are separate. Postcode allocation uses the NHS Postcode Directory's direct constituency assignment; LSOA best-fit is a statistical allocation, not a polygon intersection or evidence that a practice site is in that constituency. Trust and commissioner entries locate coded addresses only; they do not measure service catchment or commissioning responsibility. No NHS site location is inferred from a town or organisation name. The v0.3 parliamentary layer joins a separately refreshed current UK Parliament member snapshot to the fixed PCON24 code set.
 
 ## Run from a clean checkout
 
@@ -19,9 +19,11 @@ pytest -q
 nhs-geo fetch
 nhs-geo build --offline
 nhs-geo qa
+nhs-geo constituency E14001063
+nhs-geo organisation A81001 --json
 ```
 
-`nhs-geo build` also fetches missing sources by default; `--offline` verifies the cached hashes and never uses the network. `nhs-geo fetch --refresh` redownloads the pinned resources, including the nightly ODS report. Run the commands from the repository root, or pass `--config`, `--raw-dir`, and `--processed-dir` as needed. `nhs-geo export --format parquet|csv|duckdb --output-dir PATH` copies a built bundle.
+`nhs-geo build` also fetches missing sources by default; `--offline` verifies the cached hashes and never uses the network. `nhs-geo fetch --refresh` redownloads every configured resource. `nhs-geo fetch --refresh-member` refreshes only the current Parliament snapshot, then `nhs-geo build --offline` rebuilds against unchanged NHS/ONS inputs. Run the commands from the repository root, or pass `--config`, `--raw-dir`, and `--processed-dir` as needed. A custom processed directory must be absent, empty, or an existing marked NHS Geography Spine output bundle with no unrelated files; the build refuses repository roots and other source-containing directories. `nhs-geo export --format parquet|csv|duckdb --output-dir PATH` copies tabular outputs. The JSON tree is in `data/processed/json`.
 
 The frozen source configuration is [config/sources.yml](config/sources.yml). Source choices, licences, refresh steps and limitations are in [docs/SOURCES.md](docs/SOURCES.md). Raw downloads and generated outputs are ignored by Git. Preserve a hashed copy of `data/raw` outside Git for a published release, since the ODS endpoint changes nightly.
 
@@ -41,12 +43,17 @@ The frozen source configuration is [config/sources.yml](config/sources.yml). Sou
 | `gp_patient_unmapped_lsoa.parquet` | Original practice/LSOA rows that could not be allocated, with reason. |
 | `gp_practice_source_totals.parquet` | Source total for each practice, retained for independent practice-level QA. |
 | `pcon_nhs_organisations`, `pcon_provider_summary`, `organisation_pcon_profile` `.parquet` and `.csv` | Parliamentary location exports. The first includes an operating parent's name, type and address constituency when its code is present; the second counts mapped active provider and commissioner codes by type; the third retains mapped and unmapped organisation profiles. |
+| `dim_pcon_member.parquet` | One current MP or explicit vacancy per PCON24, from the official UK Parliament Members API. The name bridge validates the full PCON24 set. |
+| `pcon_parliamentary_brief.parquet` and `.csv` | One row per PCON24 with member/vacancy, active site counts by type, GP practices serving residents and mapped registered-patient total. |
+| `organisation_parliamentary_profile.parquet` and `.csv` | Every expanded ODS organisation/site code, its address PCON and MP, explicit RE6 parent context, and GP-only served constituency details. |
+| `mp_nhs_relationship.parquet` and `.csv` | One row per evidence signal: `site_location`, `registered_patients` or `operating_relationship`. Patient counts/shares occur only on GP patient rows. |
+| `json/constituencies/<PCON24CD>.json`, `json/organisations/<ODS_CODE>.json` | Deterministic web-ready detail for every constituency and ODS code, including named sites, GP patient links and source basis. |
 | `nhs_geography.duckdb` | The v0.1 dimensions, GP and patient bridges and views, plus expanded dimensions and the three parliamentary location views above. |
 | `build_manifest.json`, `qa_report.json` | Input URLs, versions, retrieval times, SHA-256 hashes, row counts, conservation checks and mapping warnings. |
 
 The `pcon_gp_patient_links` view's constituency share denominator is the mapped registered patients in that constituency **in this source file**. It is not a census population estimate. The practice profile's outside-address share uses the full source practice list, including the explicit unmapped bucket in the denominator.
 
-`pcon_provider_summary` includes all active mapped types in `pcon_nhs_organisations`, including ICB and Sub ICB commissioner codes. It counts ODS codes, not distinct premises or hospitals. `organisation_pcon_profile` is an **address** profile, not a patient or service catchment. The existing GP-only files and patient views retain their v0.1 meaning. Source report semantics, coverage by type and known limits are in [docs/SOURCES.md](docs/SOURCES.md).
+`pcon_provider_summary` includes all active mapped types in `pcon_nhs_organisations`, including ICB and Sub ICB commissioner codes. It counts ODS codes, not distinct premises or hospitals. `organisation_pcon_profile` is an **address** profile, not a patient or service catchment. The existing GP-only files and patient views retain their v0.1 meaning. Current v0.3 operating links require the reported RE6 dates to be effective at the ODS snapshot; expired and future links remain explicitly labelled in organisation profiles. The v0.3 evidence model, member refresh and limitations are in [docs/PARLIAMENTARY_LAYER.md](docs/PARLIAMENTARY_LAYER.md); source report semantics are in [docs/SOURCES.md](docs/SOURCES.md).
 
 ## Verified October 2026 build
 
@@ -61,3 +68,7 @@ The report and manifest for a fresh run are generated locally; the numbers above
 The new ODS reports yielded 6,634 branch codes, 274 trusts, 46,388 trust-site codes, 321 Sub ICB unit codes and 2,189 Sub ICB location sites. The ONS April 2026 code set selected all 36 current ICBs from 1,089 mixed `eother` records. With the unchanged 8,193 GP practice records, the expanded dimension has 64,035 unique ODS codes. Of the active records, 45,937 have a direct PCON24 postcode mapping; there were no LSOA fallbacks. The parliamentary provider and commissioner summary contains 2,241 constituency-by-type rows. Four active trust-site codes have Isle of Man or Channel Islands postcodes with no PCON24 allocation and remain explicit unmapped rows. Every valid active England postcode in the included active types mapped.
 
 There are 55,211 explicit RE6 operating links in the expanded reports; 55,142 resolve to a code in this dimension. The remaining 69 are GP branch links, 47 of them active, to prescribing cost centre codes outside the selected RO76 GP practice set. Their source parent codes are retained and reported; no parent is guessed. Another 15 active branches point to GP records marked `DORMANT` by `epraccur` and are flagged for review. The patient bridge still reconciles 63,436,502 people exactly, including 105,638 in the v0.1 unmapped bucket.
+
+## v0.3 real-source acceptance, 10 October 2026 UTC
+
+The full configured source set was refreshed on 10 October 2026, including the nightly ODS reports and the official UK Parliament Members API. The API matched all 650 fixed PCON24 constituencies by the documented normalized-name bridge: 650 current members, zero vacancies and zero unmatched names in this snapshot. The expanded ODS dimension has 64,040 organisation/site codes. The new constituency brief has 650 rows, the organisation parliamentary profile has 64,040 rows, and the normalized MP–NHS table has 305,485 rows: 45,886 `site_location`, 220,709 `registered_patients`, and 38,890 `operating_relationship`. The patient relationships contain 63,330,864 mapped registrations, exactly matching the existing GP bridge; 105,638 remain in its explicit unmapped bucket, so the source total is conserved at 63,436,502. The build and saved-output QA passed with the existing documented mapping warnings. These figures are specific to the dated source hashes in the local manifest and will change when live sources refresh.
