@@ -320,14 +320,14 @@ Do not rely on a source URL being permanently versioned; cache the exact raw fil
 
 ### v0.2
 
-- GP registered-patient distribution -> constituency
-- PCN and ICB roll-ups where organisational relationships are available
-- parliamentary summary tables
+- Preserve the shipped GP registered-patient distribution and its v0.1 conservation checks.
+- Add ODS GP branches, NHS trusts and sites, current ICBs, and Sub ICB units and sites under Issue #3.
+- Publish parliamentary **address-location** views and explicit RE6 operating context; do not infer PCN/ICB or trust catchments from a site postcode.
 
 ### v0.3
 
-- trusts, trust sites, ICBs/other commissioners
-- Scotland/Wales/NI site-location coverage
+- Extend defensible provider/commissioner site-location coverage across the UK with source and licence review.
+- Add further organisational or population roll-ups only when source relationships or flow data support them.
 
 ### v1.0
 

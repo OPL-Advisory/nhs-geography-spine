@@ -34,6 +34,131 @@ def _percentile(values: list[float], fraction: float) -> float | None:
     return values[lower] + (values[upper] - values[lower]) * (position - lower)
 
 
+def create_provider_qa(organisations: pl.DataFrame, bridge: pl.DataFrame,
+                       pcon_names: pl.DataFrame) -> dict:
+    """Audit all ODS codes and the explicit RE6 operating relationships."""
+    assert_unique(organisations, "org_code")
+    assert_unique(bridge, "org_code")
+    if organisations.height != bridge.height:
+        raise ValueError("Expanded site bridge does not contain one row per ODS code")
+    if set(organisations["org_code"].to_list()) != set(bridge["org_code"].to_list()):
+        raise ValueError("Expanded site bridge has missing or extra ODS codes")
+    valid_pcons = set(pcon_names["pcon24cd"].to_list())
+    invalid = set(bridge["pcon24cd"].drop_nulls().to_list()) - valid_pcons
+    if invalid:
+        raise ValueError(f"Expanded site bridge contains invalid PCON24 codes: {sorted(invalid)[:5]}")
+    methods = {"postcode_direct", "postcode_to_lsoa_then_best_fit", "unmapped"}
+    if set(bridge["mapping_method"].to_list()) - methods:
+        raise ValueError("Expanded site bridge has an undocumented mapping method")
+    expected_parent_types = {
+        "gp_branch_surgery": {"gp_practice"},
+        "nhs_trust_site": {"nhs_trust"},
+        "sub_icb_location_site": {"sub_icb_location", "sub_icb_reporting_entity",
+                                  "commissioning_hub", "icb_commissioning_proxy",
+                                  "former_clinical_commissioning_group"},
+    }
+    missing_operator = organisations.filter(
+        pl.col("organisation_type").is_in(list(expected_parent_types))
+        & pl.col("parent_org_code").is_null()
+    )
+    parent_lookup = organisations.select(
+        pl.col("org_code").alias("parent_org_code"),
+        pl.col("organisation_type").alias("parent_organisation_type"),
+        pl.col("org_name").alias("parent_org_name"),
+        pl.col("status").alias("parent_status"),
+    )
+    related = organisations.filter(pl.col("relationship_type") == "RE6").join(
+        parent_lookup, on="parent_org_code", how="left", validate="m:1"
+    )
+    if related.filter(pl.col("parent_org_code").is_null()).height:
+        raise ValueError("RE6 relationship has no parent ODS code")
+    wrong = related.filter(~pl.col("organisation_type").is_in(list(expected_parent_types)))
+    for child_type, allowed in expected_parent_types.items():
+        mismatch = related.filter(
+            (pl.col("organisation_type") == child_type)
+            & pl.col("parent_organisation_type").is_not_null()
+            & ~pl.col("parent_organisation_type").is_in(list(allowed))
+        )
+        if mismatch.height:
+            wrong = pl.concat([wrong, mismatch])
+    if wrong.height:
+        raise ValueError(f"RE6 relationship targets an unexpected organisation type: {wrong['org_code'][0]}")
+    unresolved = related.filter(pl.col("parent_organisation_type").is_null())
+    parent_status_flags = related.filter(
+        (pl.col("status") == "ACTIVE") & pl.col("parent_status").is_not_null()
+        & (pl.col("parent_status") != "ACTIVE")
+    ).select("org_code", "parent_org_code", "parent_status").sort("org_code").to_dicts()
+    invalid_unresolved = unresolved.filter(pl.col("organisation_type") != "gp_branch_surgery")
+    if invalid_unresolved.height:
+        raise ValueError(f"Unresolved non-branch RE6 relationship: {invalid_unresolved['org_code'][0]}")
+    joined = organisations.select("org_code", "organisation_type", "source_report").join(
+        bridge.select("org_code", "status", "postcode_compact", "country_code",
+                      "pcon24cd", "mapping_method", "unmapped_reason"),
+        on="org_code", validate="1:1",
+    )
+    coverage = []
+    for key, group in joined.group_by("organisation_type"):
+        active = group.filter(pl.col("status") == "ACTIVE")
+        valid = active.filter(pl.col("postcode_compact").is_not_null())
+        valid_england = active.filter(
+            pl.col("postcode_compact").is_not_null() & (pl.col("country_code") == "E92000001")
+        )
+        mapped_england = valid_england.filter(pl.col("pcon24cd").is_not_null())
+        coverage.append({
+            "organisation_type": key[0], "source_rows": group.height,
+            "active_rows": active.height,
+            "mapped_active_rows": active.filter(pl.col("pcon24cd").is_not_null()).height,
+            "active_mapping_rate": (active.filter(pl.col("pcon24cd").is_not_null()).height
+                                    / active.height if active.height else None),
+            "valid_active_postcodes": valid.height,
+            "mapped_valid_active_postcodes": valid.filter(pl.col("pcon24cd").is_not_null()).height,
+            "valid_active_unknown_country_postcodes": valid.filter(
+                pl.col("country_code").is_null()).height,
+            "valid_active_england_postcodes": valid_england.height,
+            "mapped_valid_active_england_postcodes": mapped_england.height,
+            "valid_active_england_mapping_rate": (
+                mapped_england.height / valid_england.height if valid_england.height else None
+            ),
+            "active_unmapped_by_reason": dict(sorted(Counter(
+                active.filter(pl.col("pcon24cd").is_null())["unmapped_reason"].to_list()
+            ).items(), key=lambda item: str(item[0]))),
+        })
+    coverage.sort(key=lambda row: row["organisation_type"])
+    unresolved_rows = unresolved.select(
+        "org_code", "organisation_type", "parent_org_code", "status"
+    ).sort("org_code").to_dicts()
+    missing_operator_rows = missing_operator.select(
+        "org_code", "organisation_type", "source_report", "status"
+    ).sort("org_code").to_dicts()
+    return {
+        "organisations": organisations.height,
+        "bridge_rows": bridge.height,
+        "active_unmapped_rows": joined.filter(
+            (pl.col("status") == "ACTIVE") & pl.col("pcon24cd").is_null()).height,
+        "by_organisation_type": coverage,
+        "re6_relationships": related.height,
+        "resolved_re6_relationships": related.height - unresolved.height,
+        "unresolved_active_re6_relationships": unresolved.filter(
+            pl.col("status") == "ACTIVE").height,
+        "unresolved_re6_relationships": unresolved_rows,
+        "missing_active_re6_operator_rows": missing_operator.filter(
+            pl.col("status") == "ACTIVE").height,
+        "missing_re6_operator_rows": missing_operator_rows,
+        "active_child_parent_not_active": parent_status_flags,
+    }
+
+
+def attach_provider_qa(report: dict, organisations: pl.DataFrame, bridge: pl.DataFrame,
+                       pcon_names: pl.DataFrame) -> dict:
+    provider = create_provider_qa(organisations, bridge, pcon_names)
+    report["provider_coverage"] = provider
+    if (provider["active_unmapped_rows"] or provider["unresolved_active_re6_relationships"]
+            or provider["missing_active_re6_operator_rows"]
+            or provider["active_child_parent_not_active"]):
+        report["status"] = "pass_with_warnings"
+    return report
+
+
 def create_qa_report(
     lookup: pl.DataFrame, sites: pl.DataFrame, site_bridge: pl.DataFrame,
     patient_bridge: pl.DataFrame, unmapped: pl.DataFrame, patient_input_total: int,
@@ -215,6 +340,15 @@ def audit_outputs(processed_dir: Path) -> dict:
     unmapped = pl.read_parquet(processed_dir / "gp_patient_unmapped_lsoa.parquet")
     pcon = pl.read_parquet(processed_dir / "pcon24.parquet")
     practice_source_totals = pl.read_parquet(processed_dir / "gp_practice_source_totals.parquet")
+    all_sites = pl.read_parquet(processed_dir / "all_nhs_organisation_sites.parquet")
+    all_bridge = pl.read_parquet(processed_dir / "all_nhs_org_to_pcon.parquet")
+    if all_sites.height != manifest["row_counts"]["all_ods_organisation_rows"]:
+        raise ValueError("Expanded organisation row count differs from the build manifest")
+    if all_bridge.height != manifest["row_counts"]["all_site_bridge_rows"]:
+        raise ValueError("Expanded site bridge row count differs from the build manifest")
+    if set(sites["org_code"].to_list()) != set(all_sites.filter(
+        pl.col("organisation_type") == "gp_practice")["org_code"].to_list()):
+        raise ValueError("Expanded dimension does not preserve the v0.1 GP practice set")
     postcode_path = str(processed_dir / "postcode_spine.parquet")
     with duckdb.connect() as connection:
         postcode_rows = connection.execute(
@@ -241,4 +375,12 @@ def audit_outputs(processed_dir: Path) -> dict:
         manifest["row_counts"]["gp_patient_source_total"], pcon,
         manifest["row_counts"]["postcode_directory"], practice_source_totals,
     )
+    attach_provider_qa(report, all_sites, all_bridge, pcon)
+    with duckdb.connect(str(processed_dir / "nhs_geography.duckdb"), read_only=True) as connection:
+        for view in ("pcon_nhs_organisations", "pcon_provider_summary",
+                     "organisation_pcon_profile"):
+            count = connection.execute(f"SELECT COUNT(*) FROM {view}").fetchone()[0]
+            saved = pl.read_parquet(processed_dir / f"{view}.parquet").height
+            if count != saved or count != manifest["row_counts"][f"{view}_rows"]:
+                raise ValueError(f"{view} row count differs between DuckDB, Parquet and manifest")
     return report

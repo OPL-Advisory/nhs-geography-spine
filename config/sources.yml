@@ -13,6 +13,55 @@ ods_gp_practices:
   source_date: retrieval
   source_date_kind: DSE report retrieval date
   publisher: NHS England Organisation Data Service
+ods_gp_branches:
+  url: https://www.odsdatasearchandexport.nhs.uk/api/getReport?report=ebranchs
+  filename: ods_ebranchs.csv
+  source_version: DSE ebranchs predefined report (nightly retrieval snapshot)
+  source_date: retrieval
+  source_date_kind: DSE report retrieval date
+  publisher: NHS England Organisation Data Service
+ods_nhs_trusts:
+  url: https://www.odsdatasearchandexport.nhs.uk/api/getReport?report=etr
+  filename: ods_etr.csv
+  source_version: DSE etr predefined report (nightly retrieval snapshot)
+  source_date: retrieval
+  source_date_kind: DSE report retrieval date
+  publisher: NHS England Organisation Data Service
+ods_nhs_trust_sites:
+  url: https://www.odsdatasearchandexport.nhs.uk/api/getReport?report=ets
+  filename: ods_ets.csv
+  source_version: DSE ets predefined report (nightly retrieval snapshot)
+  source_date: retrieval
+  source_date_kind: DSE report retrieval date
+  publisher: NHS England Organisation Data Service
+ods_other:
+  url: https://www.odsdatasearchandexport.nhs.uk/api/getReport?report=eother
+  filename: ods_eother.csv
+  source_version: DSE eother predefined report (nightly retrieval snapshot)
+  source_date: retrieval
+  source_date_kind: DSE report retrieval date
+  publisher: NHS England Organisation Data Service
+ods_sub_icb_locations:
+  url: https://www.odsdatasearchandexport.nhs.uk/api/getReport?report=eccg
+  filename: ods_eccg.csv
+  source_version: DSE eccg predefined report (nightly retrieval snapshot)
+  source_date: retrieval
+  source_date_kind: DSE report retrieval date
+  publisher: NHS England Organisation Data Service
+ods_sub_icb_sites:
+  url: https://www.odsdatasearchandexport.nhs.uk/api/getReport?report=eccgsite
+  filename: ods_eccgsite.csv
+  source_version: DSE eccgsite predefined report (nightly retrieval snapshot)
+  source_date: retrieval
+  source_date_kind: DSE report retrieval date
+  publisher: NHS England Organisation Data Service
+ons_icb26_codes:
+  url: https://open-geography-portalx-ons.hub.arcgis.com/api/download/v1/items/ff00c7228a5e4f1fa1fdf6bd81e15a1f/csv?layers=0
+  filename: ons_icb_apr2026.csv
+  source_version: Integrated Care Boards April 2026 names and codes in England
+  source_date: '2026-04-01'
+  source_date_kind: ICB code-set reference date
+  publisher: Office for National Statistics
 nhs_postcode_directory:
   url: https://www.arcgis.com/sharing/rest/content/items/55d0b9a92ed940f887dfd9a9402be0c8/data
   filename: nhspd_aug2026.zip

@@ -15,8 +15,15 @@ from .ingest_gp_patients import read_gp_patients
 from .ingest_ods import read_gp_practices
 from .ingest_ons import read_lsoa_lookup
 from .ingest_postcodes import read_pcon_names, write_postcodes
-from .qa import audit_outputs, create_qa_report
-from .sources import Source, fetch_sources, load_config, verified_sources
+from .ingest_providers import expand_gp_schema, read_icb_codes, read_provider_reports
+from .qa import attach_provider_qa, audit_outputs, create_qa_report
+from .sources import (
+    PROVIDER_SOURCE_KEYS,
+    Source,
+    fetch_sources,
+    load_config,
+    verified_sources,
+)
 from .transform import aggregate_gp_patients, map_sites
 
 app = typer.Typer(no_args_is_help=True)
@@ -29,6 +36,11 @@ BUILD_OUTPUTS = (
     "gp_practice_source_totals.parquet", "gp_practice_patient_pcon.parquet",
     "gp_practice_patient_pcon.csv", "gp_patient_unmapped_lsoa.parquet",
     "qa_report.json", "nhs_geography.duckdb",
+    "icb26_codes.parquet", "all_nhs_organisation_sites.parquet",
+    "all_nhs_org_to_pcon.parquet", "all_nhs_org_to_pcon.csv",
+    "pcon_nhs_organisations.parquet", "pcon_nhs_organisations.csv",
+    "pcon_provider_summary.parquet", "pcon_provider_summary.csv",
+    "organisation_pcon_profile.parquet", "organisation_pcon_profile.csv",
 )
 
 
@@ -57,6 +69,9 @@ def _create_duckdb(processed: Path) -> None:
         "dim_postcode": "postcode_spine.parquet",
         "dim_nhs_organisation_site": "nhs_organisation_sites.parquet",
         "bridge_org_site_pcon": "nhs_org_to_pcon.parquet",
+        "dim_icb26_code": "icb26_codes.parquet",
+        "dim_all_nhs_organisation_site": "all_nhs_organisation_sites.parquet",
+        "bridge_all_org_site_pcon": "all_nhs_org_to_pcon.parquet",
         "bridge_gp_practice_patient_pcon": "gp_practice_patient_pcon.parquet",
         "gp_patient_unmapped_lsoa": "gp_patient_unmapped_lsoa.parquet",
         "gp_practice_source_totals": "gp_practice_source_totals.parquet",
@@ -66,10 +81,47 @@ def _create_duckdb(processed: Path) -> None:
             connection.execute(f"CREATE TABLE {name} AS SELECT * FROM read_parquet(?)", [str(processed / filename)])
         connection.execute("""
             CREATE VIEW pcon_nhs_organisations AS
-            SELECT pcon24cd, pcon24nm, org_code, site_code, org_name, org_role,
-                   postcode, mapping_method, mapping_quality
-            FROM bridge_org_site_pcon
-            WHERE pcon24cd IS NOT NULL AND status = 'ACTIVE'
+            SELECT s.pcon24cd, s.pcon24nm, s.org_code, s.site_code, s.org_name,
+                   s.org_role, s.postcode, s.mapping_method, s.mapping_quality,
+                   s.organisation_type, s.primary_role_id, s.non_primary_role_ids,
+                   s.parent_org_code, p.org_name AS parent_org_name,
+                   p.organisation_type AS parent_organisation_type,
+                   p.status AS parent_status,
+                   s.relationship_type, s.relationship_start_date,
+                   s.relationship_end_date, p.pcon24cd AS parent_address_pcon24cd,
+                   s.open_date, s.close_date, s.status_basis, s.role_evidence,
+                   s.source_report, s.source_version, s.source_snapshot_date,
+                   'site_postcode' AS geography_basis
+            FROM bridge_all_org_site_pcon s
+            LEFT JOIN bridge_all_org_site_pcon p ON p.org_code = s.parent_org_code
+            WHERE s.pcon24cd IS NOT NULL AND s.status = 'ACTIVE'
+        """)
+        connection.execute("""
+            CREATE VIEW pcon_provider_summary AS
+            SELECT pcon24cd, pcon24nm, organisation_type,
+                   COUNT(DISTINCT org_code) AS organisation_codes,
+                   'site_postcode' AS geography_basis
+            FROM pcon_nhs_organisations
+            GROUP BY pcon24cd, pcon24nm, organisation_type
+        """)
+        connection.execute("""
+            CREATE VIEW organisation_pcon_profile AS
+            SELECT s.org_code, s.org_name, s.organisation_type, s.org_role,
+                   s.status, s.status_basis, s.postcode, s.country_code,
+                   s.pcon24cd AS address_pcon24cd,
+                   s.pcon24nm AS address_pcon24nm, s.mapping_method,
+                   s.mapping_quality, s.unmapped_reason, s.parent_org_code,
+                   p.org_name AS parent_org_name,
+                   p.organisation_type AS parent_organisation_type,
+                   p.status AS parent_status,
+                   p.pcon24cd AS parent_address_pcon24cd,
+                   s.relationship_type, s.relationship_start_date,
+                   s.relationship_end_date, s.open_date, s.close_date,
+                   s.role_evidence, s.source_report, s.source_version,
+                   s.source_snapshot_date,
+                   'site_postcode' AS geography_basis
+            FROM bridge_all_org_site_pcon s
+            LEFT JOIN bridge_all_org_site_pcon p ON p.org_code = s.parent_org_code
         """)
         connection.execute("""
             CREATE VIEW pcon_gp_patient_links AS
@@ -107,6 +159,14 @@ def _create_duckdb(processed: Path) -> None:
             JOIN totals t ON t.practice_code = b.practice_code
         """)
         connection.execute("CHECKPOINT")
+        for name, order in (
+            ("pcon_nhs_organisations", "pcon24cd, organisation_type, org_code"),
+            ("pcon_provider_summary", "pcon24cd, organisation_type"),
+            ("organisation_pcon_profile", "org_code"),
+        ):
+            result = connection.execute(f"SELECT * FROM {name} ORDER BY {order}").pl()
+            result.write_parquet(processed / f"{name}.parquet")
+            result.write_csv(processed / f"{name}.csv")
     temporary.replace(database)
 
 
@@ -156,6 +216,27 @@ def _build_bundle(config: dict[str, Source], ledger: dict, raw_dir: Path,
                             postcode_spec.source_version, config["ons_lsoa21_pcon24"].source_version)
     site_bridge.write_parquet(processed_dir / "nhs_org_to_pcon.parquet")
     site_bridge.write_csv(processed_dir / "nhs_org_to_pcon.csv")
+    if all(key in config for key in PROVIDER_SOURCE_KEYS):
+        icb_codes = read_icb_codes(raw_dir / config["ons_icb26_codes"].filename)
+        provider_sites, provider_source_rows = read_provider_reports(config, ledger, raw_dir, icb_codes)
+        all_sites = pl.concat([expand_gp_schema(sites), provider_sites], how="vertical").sort("org_code")
+    else:
+        icb_codes = pl.DataFrame(schema={"icb26cd": pl.String, "org_code": pl.String,
+                                         "icb26nm": pl.String})
+        provider_source_rows = {}
+        all_sites = expand_gp_schema(sites)
+    icb_codes.write_parquet(processed_dir / "icb26_codes.parquet")
+    all_sites.write_parquet(processed_dir / "all_nhs_organisation_sites.parquet")
+    all_bridge = map_sites(all_sites, processed_dir / "postcode_spine.parquet", ons,
+                           postcode_spec.source_version, config["ons_lsoa21_pcon24"].source_version)
+    all_bridge = all_bridge.join(all_sites.select(
+        "org_code", "organisation_type", "primary_role_id", "non_primary_role_ids",
+        "parent_org_code", "operating_org_code", "relationship_type",
+        "relationship_start_date", "relationship_end_date", "role_evidence", "status_basis",
+        "source_report", "source_version", "open_date", "close_date",
+    ), on="org_code", validate="1:1").sort("org_code")
+    all_bridge.write_parquet(processed_dir / "all_nhs_org_to_pcon.parquet")
+    all_bridge.write_csv(processed_dir / "all_nhs_org_to_pcon.csv")
     patient_spec = config["gp_registered_patients_lsoa"]
     patient_lsoa = read_gp_patients(raw_dir / patient_spec.filename,
                                     patient_spec.data_member, patient_spec.source_date)
@@ -170,11 +251,12 @@ def _build_bundle(config: dict[str, Source], ledger: dict, raw_dir: Path,
     patient_total = int(patient_lsoa.select(pl.col("patient_count").sum()).item())
     report = create_qa_report(ons, sites, site_bridge, patient_bridge, unmapped,
                               patient_total, pcon, postcode_counts, practice_source_totals)
+    attach_provider_qa(report, all_sites, all_bridge, pcon)
     _write_json(processed_dir / "qa_report.json", report)
     _create_duckdb(processed_dir)
     manifest = {
         "build_timestamp": datetime.now(UTC).isoformat(),
-        "code": {"package_version": "0.1.0", **_git_state()},
+        "code": {"package_version": "0.2.0", **_git_state()},
         "sources": source,
         "geography_vintages": {"lsoa": "2021 England/Wales", "pcon": "July 2024",
                                 "postcode": postcode_spec.source_version},
@@ -187,12 +269,30 @@ def _build_bundle(config: dict[str, Source], ledger: dict, raw_dir: Path,
             "gp_patient_bridge_total": int(patient_bridge.select(pl.col("patient_count").sum()).item()),
             "gp_patient_unmapped_lsoa_rows": unmapped.height,
             "gp_practice_source_totals_rows": practice_source_totals.height,
+            "ons_icb26_code_rows": icb_codes.height,
+            "provider_reports": provider_source_rows,
+            "all_ods_organisation_rows": all_sites.height,
+            "all_site_bridge_rows": all_bridge.height,
+            "pcon_nhs_organisations_rows": pl.read_parquet(
+                processed_dir / "pcon_nhs_organisations.parquet").height,
+            "pcon_provider_summary_rows": pl.read_parquet(
+                processed_dir / "pcon_provider_summary.parquet").height,
+            "organisation_pcon_profile_rows": pl.read_parquet(
+                processed_dir / "organisation_pcon_profile.parquet").height,
         },
         "qa_summary": {"status": report["status"],
                        "valid_active_england_gp_mapping_rate": report["site_mapping"][
                            "valid_active_england_gp_mapping_rate"],
                        "threshold_99_percent_met": report["site_mapping"]["threshold_99_percent_met"],
-                       "patient_difference": report["patient_reconciliation"]["difference"]},
+                       "patient_difference": report["patient_reconciliation"]["difference"],
+                       "provider_active_unmapped_rows": report["provider_coverage"][
+                           "active_unmapped_rows"],
+                       "provider_unresolved_active_re6_relationships": report[
+                           "provider_coverage"]["unresolved_active_re6_relationships"],
+                       "provider_missing_active_re6_operators": report[
+                           "provider_coverage"]["missing_active_re6_operator_rows"],
+                       "active_child_parent_not_active": len(report["provider_coverage"][
+                           "active_child_parent_not_active"])},
     }
     _write_json(processed_dir / "build_manifest.json", manifest)
     return report
@@ -236,8 +336,13 @@ def export(format: str = typer.Option(..., help="parquet, csv or duckdb"),
         "parquet": ["lsoa21_pcon24.parquet", "postcode_spine.parquet", "pcon24.parquet",
                     "nhs_organisation_sites.parquet", "nhs_org_to_pcon.parquet",
                     "gp_practice_patient_pcon.parquet", "gp_patient_unmapped_lsoa.parquet",
-                    "gp_practice_source_totals.parquet"],
-        "csv": ["nhs_org_to_pcon.csv", "gp_practice_patient_pcon.csv"],
+                    "gp_practice_source_totals.parquet", "icb26_codes.parquet",
+                    "all_nhs_organisation_sites.parquet", "all_nhs_org_to_pcon.parquet",
+                    "pcon_nhs_organisations.parquet", "pcon_provider_summary.parquet",
+                    "organisation_pcon_profile.parquet"],
+        "csv": ["nhs_org_to_pcon.csv", "gp_practice_patient_pcon.csv",
+                "all_nhs_org_to_pcon.csv", "pcon_nhs_organisations.csv",
+                "pcon_provider_summary.csv", "organisation_pcon_profile.csv"],
         "duckdb": ["nhs_geography.duckdb"],
     }
     if format not in files:
