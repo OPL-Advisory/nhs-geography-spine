@@ -342,6 +342,7 @@ searchInput.addEventListener('keydown', (event) => {
     const chosen = matches[active >= 0 ? active : 0];
     window.location.href = routeUrl(chosen.kind, chosen.code);
   } else if (event.key === 'Escape') {
+    event.preventDefault();
     closeResults();
   } else if (event.key === 'Tab') {
     closeResults();
@@ -357,6 +358,7 @@ async function start() {
       el('span', '', `Parliament · ${date(d.parliament)}`),
       el('span', '', `GP registrations · ${date(d.gp_patients)}`),
       el('span', '', `ODS · ${d.ods.map(date).join(', ')}`),
+      el('span', '', `Postcode allocation · ${d.postcode}`),
       el('span', '', `Constituency geography · ${d.pcon}`));
     $('#release-id').textContent = `Pinned snapshot ${release.snapshot_id.slice(0, 12)} · ${number.format(release.counts.constituencies)} constituencies · ${number.format(release.counts.organisations)} ODS codes`;
     const coverage = release.coverage;

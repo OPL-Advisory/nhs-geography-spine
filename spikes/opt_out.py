@@ -11,6 +11,7 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -59,6 +60,8 @@ def _rate(raw: str, count: int | None, list_size: int | None) -> tuple[str, floa
         numeric = float(value.rstrip("%").replace(",", ""))
     except ValueError as error:
         raise ValueError(f"Invalid NHS opt-out rate: {raw!r}") from error
+    if not math.isfinite(numeric):
+        raise ValueError(f"Non-finite NHS opt-out rate: {raw!r}")
     if numeric < 0:
         raise ValueError(f"Negative NHS opt-out rate: {raw!r}")
     expected = count / list_size if count is not None and list_size else None
@@ -217,7 +220,8 @@ def main() -> None:
                      source_url=args.source_url, source_version=args.source_version,
                      retrieved_at=args.retrieved_at, list_size_vintage=args.list_size_vintage)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.output.write_text(json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n",
+                           encoding="utf-8")
     print(f"{result['practice_codes']} official practice codes; join reasons: {result['join_reasons']}")
 
 

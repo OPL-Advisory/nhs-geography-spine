@@ -320,6 +320,7 @@ def make_archive(destination: Path, archive: Path) -> str:
             info.mtime = 0
             info.uid = info.gid = 0
             info.uname = info.gname = ""
+            info.mode = 0o644 if path.is_file() else 0o755
             if path.is_file():
                 with path.open("rb") as stream:
                     bundle.addfile(info, stream)

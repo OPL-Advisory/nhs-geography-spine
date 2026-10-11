@@ -32,7 +32,8 @@ function descendants(root) {
 const release = {
   snapshot_id: 'abc123456789',
   dates: { parliament: '2026-10-10', gp_patients: '2026-07-01',
-    ods: ['2026-10-10'], pcon: 'July 2024' },
+    ods: ['2026-10-10'], pcon: 'July 2024',
+    postcode: 'NHS Postcode Directory full, August 2026' },
   counts: { constituencies: 1, organisations: 1 },
   coverage: { active_unmapped_provider_addresses: 0,
     unresolved_active_re6_links: 1, unmapped_registered_patients: 0 },
@@ -69,11 +70,14 @@ test('Escape then either arrow reopens matches, updates ARIA, and Enter routes',
   const nodes = await openApp('', null, 'keyboard');
   const input = nodes.get('#record-search');
   const results = nodes.get('#search-results');
+  assert.ok(nodes.get('#clocks').children.some((node) =>
+    node.textContent.includes('Postcode allocation · NHS Postcode Directory full, August 2026')));
   input.value = 'Aldershot';
   input.dispatch('input');
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(results.children.length, 2);
-  input.dispatch('keydown', 'Escape');
+  assert.equal(input.dispatch('keydown', 'Escape'), true);
+  assert.equal(input.value, 'Aldershot');
   assert.equal(results.hidden, true);
   assert.equal(input.getAttribute('aria-expanded'), 'false');
   assert.equal(input.getAttribute('aria-activedescendant'), undefined);
@@ -84,7 +88,8 @@ test('Escape then either arrow reopens matches, updates ARIA, and Enter routes',
   assert.equal(results.children[1].getAttribute('aria-selected'), 'true');
   assert.equal(input.dispatch('keydown', 'Enter'), true);
   assert.equal(window.location.href, '?view=organisation&code=R00001');
-  input.dispatch('keydown', 'Escape');
+  assert.equal(input.dispatch('keydown', 'Escape'), true);
+  assert.equal(input.value, 'Aldershot');
   input.dispatch('keydown', 'ArrowDown');
   assert.equal(input.getAttribute('aria-activedescendant'), 'search-option-0');
   input.dispatch('keydown', 'Enter');

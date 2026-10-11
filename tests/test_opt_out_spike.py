@@ -1,6 +1,7 @@
 """The research adapter keeps official practice grain and absent values explicit."""
 
 import csv
+import json
 from pathlib import Path
 
 import pytest
@@ -114,6 +115,22 @@ def test_anomalous_static_denominator_values_are_retained_and_flagged(tmp_path: 
     assert row["opt_out_count"] == 110 and row["opt_out_rate"] == 1.1
     assert row["data_quality_flags"] == ["count_exceeds_source_list_size",
                                         "source_rate_above_100_percent"]
+    assert json.loads(json.dumps(result, allow_nan=False))["data_quality_anomalies"] == (
+        result["data_quality_anomalies"]
+    )
+
+
+@pytest.mark.parametrize("invalid_rate", ["NaN", "inf", "+Infinity", "-inf", "-Infinity"])
+def test_non_finite_opt_out_rate_fails_before_report(
+    tmp_path: Path, invalid_rate: str,
+) -> None:
+    source = tmp_path / "non-finite.csv"
+    rows = [(code, name, measure,
+             invalid_rate if code == "A81001" and measure == "Opt-out rate" else value)
+            for code, name, measure, value in _rows()]
+    _csv(source, rows)
+    with pytest.raises(ValueError, match="Non-finite NHS opt-out rate"):
+        analyse(source, _profiles(), date="2026-08-05")
 
 
 def test_original_retrieval_timestamp_requires_timezone(tmp_path: Path) -> None:

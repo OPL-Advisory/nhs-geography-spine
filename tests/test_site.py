@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import os
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -107,12 +109,25 @@ def test_site_build_is_deterministic_and_archive_rolls_back(tmp_path: Path) -> N
             "static_asset_sha256"][name]
     archive1 = tmp_path / "candidate-1.tar.gz"
     archive2 = tmp_path / "candidate-2.tar.gz"
-    digest1 = site.make_archive(destination, archive1)
-    second = site.build_site(processed, destination)
-    digest2 = site.make_archive(destination, archive2)
+    detail = destination / first["details_base"] / "organisations" / "A81001.json"
+    original_umask = os.umask(0o022)
+    try:
+        assert site.build_site(processed, destination) == first
+        mode_22 = detail.stat().st_mode & 0o777
+        digest1 = site.make_archive(destination, archive1)
+        os.umask(0o077)
+        second = site.build_site(processed, destination)
+        mode_77 = detail.stat().st_mode & 0o777
+        digest2 = site.make_archive(destination, archive2)
+    finally:
+        os.umask(original_umask)
     assert second == first
+    assert (mode_22, mode_77) == (0o644, 0o600)
     assert digest1 == digest2
     assert archive1.read_bytes() == archive2.read_bytes()
+    with tarfile.open(archive2, "r:gz") as bundle:
+        assert all(member.mode == (0o644 if member.isfile() else 0o755)
+                   for member in bundle.getmembers())
     with pytest.raises(ValueError, match="outside"):
         site.make_archive(destination, destination / "inside.tar.gz")
 
