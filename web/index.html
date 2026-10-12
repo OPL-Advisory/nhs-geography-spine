@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Search dated parliamentary context for NHS organisation locations and GP registered-patient links.">
+  <meta name="robots" content="noindex,nofollow">
+  <title>NHS Parliamentary Lens</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to results</a>
+  <header class="masthead">
+    <div class="shell">
+      <div class="brandline"><span class="mark" aria-hidden="true">✳</span><span>OPL Advisory · evidence tools</span></div>
+      <p class="eyebrow">Dated public data · read-only preview</p>
+      <h1><a href="index.html">NHS Parliamentary Lens</a></h1>
+      <p class="lead">Explore where coded NHS sites are located, and where GP practices have registered patients. Each relationship keeps its own evidence and date.</p>
+      <div class="clocks" id="clocks" aria-live="polite">Loading the pinned source snapshot…</div>
+    </div>
+  </header>
+
+  <div class="shell page-grid">
+    <div class="primary">
+      <section class="search-panel" aria-labelledby="find-heading">
+        <p class="section-label">Find a record</p>
+        <h2 id="find-heading">Constituency or NHS organisation</h2>
+        <label for="record-search">Search by name, PCON24 code or ODS code</label>
+        <div class="combobox-wrap">
+          <input id="record-search" type="search" role="combobox" aria-autocomplete="list"
+                 aria-controls="search-results" aria-expanded="false" autocomplete="off"
+                 spellcheck="false" placeholder="For example, Aldershot or A81001">
+          <ul id="search-results" role="listbox" hidden></ul>
+        </div>
+        <p id="search-status" class="field-hint" role="status" aria-live="polite">Start typing to search the dated snapshot.</p>
+      </section>
+
+      <main id="main" tabindex="-1">
+        <div id="detail" class="detail-panel">
+          <p class="section-label">Start here</p>
+          <h2>Two kinds of evidence, kept separate</h2>
+          <div class="intro-grid">
+            <section><span class="basis basis-site">Site location</span><h3>Where an address maps</h3><p>ODS coded provider and commissioner addresses are assigned to July 2024 parliamentary constituencies from postcode geography.</p></section>
+            <section><span class="basis basis-patient">Registered patients</span><h3>Where a GP list is allocated</h3><p>GP registrations are allocated from 2021 LSOAs by the official best-fit lookup. These are registrations, not an exact count of constituency residents.</p></section>
+          </div>
+          <p class="start-note">Search above to open a dated constituency or organisation record. Direct links to a selected record work on a static host.</p>
+        </div>
+      </main>
+    </div>
+
+    <aside class="context" aria-labelledby="context-heading">
+      <h2 id="context-heading">How to read this</h2>
+      <p><strong>Current MP</strong> means current at the Parliament snapshot. It does not describe representation when the earlier GP extract was taken.</p>
+      <p><strong>Site location</strong> is an address allocation. It does not establish an ICB or trust catchment, service coverage or commissioning responsibility.</p>
+      <p><strong>Registered patients</strong> come from a GP practice list. They are not a census resident count or a measure of care received.</p>
+      <div id="coverage" class="coverage" aria-live="polite"></div>
+      <details class="method"><summary>Sources and method</summary>
+        <p>Derived from the NHS Geography Spine v0.3 JSON contract. UK Parliament current members, NHS England ODS organisation reports, NHS England GP registrations, ONS LSOA21 best-fit lookup and the NHS Postcode Directory each keep a separate date and role.</p>
+        <p>Some codes remain unmapped or lack a current RE6 operator. Absence is shown with a reason; no location or patient population is inferred from a name.</p>
+        <p>Contains information from NHS England, licensed under the current Open Government Licence. Source: Office for National Statistics licensed under the Open Government Licence v.3.0. Contains OS data © Crown copyright and database right 2026. Contains Royal Mail data © Royal Mail copyright and database right 2026. Parliament member information: UK Parliament Members API.</p>
+      </details>
+    </aside>
+  </div>
+
+  <footer class="site-footer"><div class="shell"><p>Independent OPL Advisory preview · not an NHS or UK Parliament service. No live source calls are made in this browser.</p><p id="release-id">Source snapshot loading…</p></div></footer>
+  <noscript><p class="noscript">This static search needs JavaScript. The source tables remain available through the NHS Geography Spine command-line interface.</p></noscript>
+</body>
+</html>
