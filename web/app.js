@@ -196,7 +196,7 @@ function renderOrganisation(data) {
   root.append(address);
 
   const operator = section('ODS operating relationship', ['operator', 'ODS RE6'],
-    'Only an explicit RE6 link effective at the ODS snapshot counts as current parliamentary evidence.');
+    'Only active organisations with an explicit RE6 link effective at the ODS snapshot can provide current parliamentary evidence.');
   if (!data.operator.code) operator.append(empty('No RE6 operator code is recorded for this organisation in the selected ODS report.'));
   else {
     const identity = el('p');
@@ -218,7 +218,14 @@ function renderOrganisation(data) {
           data.operator.current_address_member_status || 'unavailable'}`));
       operator.append(p);
     } else if (!data.operator.current_at_snapshot) {
-      operator.append(empty('This source link is historical or future at the ODS snapshot. Its parent address is not a current parliamentary relationship.'));
+      const statusReason = data.status === 'INACTIVE'
+        ? 'This organisation is inactive at the ODS snapshot. ' : '';
+      const dateReason = {
+        effective: 'The source RE6 dates are effective at the ODS snapshot.',
+        expired: 'This source RE6 link had expired at the ODS snapshot.',
+        future: 'This source RE6 link starts after the ODS snapshot.',
+      }[temporal] || 'The source RE6 date status is unavailable.';
+      operator.append(empty(`${statusReason}${dateReason} The retained link is source context; its parent address is not a current parliamentary relationship.`));
     } else operator.append(empty('Current RE6 operator address cannot be mapped; no parent MP is inferred.'));
   }
   root.append(operator);

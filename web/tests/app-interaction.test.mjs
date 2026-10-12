@@ -234,3 +234,36 @@ test('unresolved RE6 code stays visible with no missing operator link', async ()
   assert.ok(all.some((node) => node.textContent.includes('Y00001')));
   assert.ok(!all.some((node) => node.tag === 'a' && node.href?.includes('Y00001')));
 });
+
+test('non-current RE6 explanation separates organisation status from relationship dates', async () => {
+  for (const [status, temporal, explanation] of [
+    ['INACTIVE', 'effective', 'The source RE6 dates are effective at the ODS snapshot.'],
+    ['ACTIVE', 'expired', 'This source RE6 link had expired at the ODS snapshot.'],
+    ['ACTIVE', 'future', 'This source RE6 link starts after the ODS snapshot.'],
+    ['INACTIVE', 'expired', 'This source RE6 link had expired at the ODS snapshot.'],
+    ['INACTIVE', 'future', 'This source RE6 link starts after the ODS snapshot.'],
+  ]) {
+    const detail = {
+      kind: 'organisation', code: 'B00002', name: 'Retained branch',
+      organisation_type: 'gp_branch_surgery', status, source_snapshot_date: '2026-10-10',
+      source_version: 'ODS',
+      address: { pcon24cd: null, pcon24nm: null, member_name: null,
+        member_status: null, member_snapshot_date: '2026-10-10', unmapped_reason: 'source gap' },
+      operator: { code: 'R00001', name: 'Retained operator', profile_available: true,
+        temporal_status: temporal, current_at_snapshot: false,
+        start_date: temporal === 'future' ? '2027-01-01' : '2020-01-01',
+        end_date: temporal === 'expired' ? '2026-01-01' : null,
+        current_address_pcon24cd: 'E14001063', current_address_member_name: 'Sentinel Parent MP' },
+      served_constituencies: [],
+    };
+    const nodes = await openApp('?view=organisation&code=B00002', detail, `re6-${status}-${temporal}`);
+    const all = descendants(nodes.get('#detail'));
+    assert.ok(all.some((node) => node.textContent.includes(`Source RE6 status: ${temporal}.`)));
+    assert.ok(all.some((node) => node.textContent.includes(explanation)));
+    assert.equal(all.some((node) => node.textContent.includes('This organisation is inactive')), status === 'INACTIVE');
+    assert.ok(!all.some((node) => node.textContent.includes('historical or future')));
+    assert.ok(all.some((node) => node.tag === 'a' && node.href?.includes('R00001')));
+    assert.ok(!all.some((node) => node.tag === 'a' && node.href?.includes('E14001063')));
+    assert.ok(!all.some((node) => node.textContent.includes('Sentinel Parent MP')));
+  }
+});
