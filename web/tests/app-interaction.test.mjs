@@ -42,7 +42,7 @@ const release = {
   details_base: 'details',
 };
 
-async function openApp(search, detail, caseName) {
+async function openApp(search, detail, caseName, { releaseResponse = release, requestPaths = [] } = {}) {
   const nodes = new Map();
   for (const id of ['detail', 'record-search', 'search-results', 'search-status',
     'clocks', 'release-id', 'coverage']) nodes.set(`#${id}`, new Element('div'));
@@ -54,8 +54,9 @@ async function openApp(search, detail, caseName) {
   globalThis.window = { location: { search, href: '' } };
   globalThis.fetch = async (url) => {
     const path = url.pathname;
+    requestPaths.push(path);
     let value;
-    if (path.endsWith('/release.json')) value = release;
+    if (path.endsWith('/release.json')) value = await releaseResponse;
     else if (path.endsWith('/indexes/constituencies.json')) value = [['E14001063', 'Aldershot']];
     else if (path.endsWith('/indexes/organisations.json')) value = [['R00001', 'Aldershot Trust', 'nhs_trust']];
     else value = detail;
@@ -65,6 +66,45 @@ async function openApp(search, detail, caseName) {
   await new Promise((resolve) => setImmediate(resolve));
   return nodes;
 }
+
+test('early search waits for release metadata and honours an edited or cleared query', async () => {
+  for (const [caseName, nextQuery, expectedCodes] of [
+    ['early', undefined, ['E14001063', 'R00001']],
+    ['edited', 'R00001', ['R00001']],
+    ['cleared', '', []],
+  ]) {
+    let finishRelease;
+    const releaseResponse = new Promise((resolve) => { finishRelease = resolve; });
+    const requestPaths = [];
+    const nodes = await openApp('', null, caseName, { releaseResponse, requestPaths });
+    const input = nodes.get('#record-search');
+    const results = nodes.get('#search-results');
+    const status = nodes.get('#search-status');
+    input.value = 'Aldershot';
+    input.dispatch('input');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(status.textContent, 'Searching the pinned snapshot…');
+    assert.equal(results.hidden, true);
+    assert.equal(results.children.length, 0);
+    assert.equal(requestPaths.length, 1);
+    if (nextQuery !== undefined) {
+      input.value = nextQuery;
+      input.dispatch('input');
+    }
+    finishRelease(release);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(input.value, nextQuery ?? 'Aldershot');
+    assert.deepEqual(results.children.map((option) => option.children[2].textContent), expectedCodes);
+    assert.equal(results.hidden, expectedCodes.length === 0);
+    assert.equal(input.getAttribute('aria-expanded'), String(expectedCodes.length > 0));
+    assert.equal(requestPaths.filter((path) => path.includes('/indexes/')).length, 2);
+    assert.equal(requestPaths.filter((path) => path.endsWith('/release.json')).length, 1);
+    assert.ok(!status.textContent.includes('could not be loaded'));
+    if (nextQuery === '') {
+      assert.equal(status.textContent, 'Start typing to search the dated snapshot.');
+    }
+  }
+});
 
 test('Escape then either arrow reopens matches, updates ARIA, and Enter routes', async () => {
   const nodes = await openApp('', null, 'keyboard');

@@ -10,7 +10,7 @@ import re
 import shutil
 import tarfile
 from pathlib import Path
-from tempfile import mkdtemp
+from tempfile import NamedTemporaryFile, mkdtemp
 
 from nhs_geo_spine.qa import audit_outputs
 
@@ -310,23 +310,32 @@ def make_archive(destination: Path, archive: Path) -> str:
     if archive.resolve().is_relative_to(destination.resolve()):
         raise ValueError("Archive must be outside the site artifact")
     archive.parent.mkdir(parents=True, exist_ok=True)
-    with archive.open("wb") as out, \
-            gzip.GzipFile(fileobj=out, mode="wb", mtime=0, filename="") as compressed, \
-            tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as bundle:
-        for path in sorted(destination.rglob("*")):
-            if path.is_symlink():
-                raise ValueError(f"Symlink in site artifact: {path}")
-            info = bundle.gettarinfo(str(path), arcname=str(path.relative_to(destination)))
-            info.mtime = 0
-            info.uid = info.gid = 0
-            info.uname = info.gname = ""
-            info.mode = 0o644 if path.is_file() else 0o755
-            if path.is_file():
-                with path.open("rb") as stream:
-                    bundle.addfile(info, stream)
-            else:
-                bundle.addfile(info)
-    return _hash(archive.read_bytes())
+    temporary = None
+    try:
+        with NamedTemporaryFile(dir=archive.parent, prefix=f".{archive.name}.",
+                                suffix=".tmp", delete=False) as out:
+            temporary = Path(out.name)
+            with gzip.GzipFile(fileobj=out, mode="wb", mtime=0, filename="") as compressed, \
+                    tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as bundle:
+                for path in sorted(destination.rglob("*")):
+                    if path.is_symlink():
+                        raise ValueError(f"Symlink in site artifact: {path}")
+                    info = bundle.gettarinfo(str(path), arcname=str(path.relative_to(destination)))
+                    info.mtime = 0
+                    info.uid = info.gid = 0
+                    info.uname = info.gname = ""
+                    info.mode = 0o644 if path.is_file() else 0o755
+                    if path.is_file():
+                        with path.open("rb") as stream:
+                            bundle.addfile(info, stream)
+                    else:
+                        bundle.addfile(info)
+        digest = _hash(temporary.read_bytes())
+        temporary.replace(archive)
+        return digest
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def main() -> None:

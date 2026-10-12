@@ -132,6 +132,43 @@ def test_site_build_is_deterministic_and_archive_rolls_back(tmp_path: Path) -> N
         site.make_archive(destination, destination / "inside.tar.gz")
 
 
+@pytest.mark.parametrize('failure', ['symlink', 'read', 'hash', 'replace'])
+def test_failed_archive_replacement_preserves_previous_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str,
+) -> None:
+    _, destination, _ = _candidate(tmp_path)
+    archive = tmp_path / 'rollback.tar.gz'
+    previous_digest = site.make_archive(destination, archive)
+    previous_bytes = archive.read_bytes()
+    original_open = Path.open
+    original_replace = Path.replace
+
+    if failure == 'symlink':
+        (destination / '.000-invalid-link').symlink_to(destination / 'release.json')
+    elif failure == 'read':
+        def fail_read(self: Path, mode: str = 'r', *args, **kwargs):
+            if self == destination / 'release.json' and mode == 'rb':
+                raise OSError('simulated source read failure')
+            return original_open(self, mode, *args, **kwargs)
+        monkeypatch.setattr(Path, 'open', fail_read)
+    elif failure == 'hash':
+        def fail_hash(_content: bytes) -> str:
+            raise OSError('simulated archive hash failure')
+        monkeypatch.setattr(site, '_hash', fail_hash)
+    else:
+        def fail_replace(self: Path, target: Path) -> Path:
+            if target == archive:
+                raise OSError('simulated archive replace failure')
+            return original_replace(self, target)
+        monkeypatch.setattr(Path, 'replace', fail_replace)
+
+    with pytest.raises((ValueError, OSError), match='Symlink|simulated'):
+        site.make_archive(destination, archive)
+    assert archive.read_bytes() == previous_bytes
+    assert hashlib.sha256(archive.read_bytes()).hexdigest() == previous_digest
+    assert not list(tmp_path.glob('.rollback.tar.gz.*'))
+
+
 def test_site_refuses_unowned_nested_file_before_writing(tmp_path: Path) -> None:
     processed, destination, release = _candidate(tmp_path)
     nested = destination / "snapshots" / release["snapshot_id"] / "details" / "organisations" / "notes.txt"

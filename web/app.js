@@ -7,6 +7,7 @@ const detailHost = $('#detail');
 const searchInput = $('#record-search');
 const resultsHost = $('#search-results');
 const searchStatus = $('#search-status');
+const releaseReady = fetchJson('release.json');
 let release;
 let indexes;
 let matches = [];
@@ -301,8 +302,10 @@ function drawResults() {
 
 async function loadIndexes() {
   if (!indexes) {
-    indexes = Promise.all([fetchJson(release.indexes.constituencies.path),
-      fetchJson(release.indexes.organisations.path)]);
+    indexes = releaseReady.then((metadata) => Promise.all([
+      fetchJson(metadata.indexes.constituencies.path),
+      fetchJson(metadata.indexes.organisations.path),
+    ]));
   }
   return indexes;
 }
@@ -352,7 +355,7 @@ searchInput.addEventListener('focus', () => { if (matches.length) drawResults();
 
 async function start() {
   try {
-    release = await fetchJson('release.json');
+    release = await releaseReady;
     const d = release.dates;
     $('#clocks').replaceChildren(
       el('span', '', `Parliament · ${date(d.parliament)}`),
