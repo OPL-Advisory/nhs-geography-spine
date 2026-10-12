@@ -12,6 +12,8 @@ let release;
 let indexes;
 let matches = [];
 let active = -1;
+let requestGeneration = 0;
+let dismissalGeneration = 0;
 
 function el(tag, className = '', value) {
   const element = document.createElement(tag);
@@ -311,6 +313,8 @@ async function loadIndexes() {
 }
 
 async function updateSearch() {
+  const request = ++requestGeneration;
+  const dismissal = dismissalGeneration;
   const query = searchInput.value.trim();
   if (!query) {
     matches = [];
@@ -323,11 +327,14 @@ async function updateSearch() {
   searchStatus.textContent = 'Searching the pinned snapshot…';
   try {
     const [constituencies, organisations] = await loadIndexes();
-    if (query !== searchInput.value.trim()) return;
+    if (request !== requestGeneration || query !== searchInput.value.trim()) return;
     matches = searchRecords(query, constituencies, organisations);
+    if (dismissal !== dismissalGeneration) return;
     drawResults();
   } catch {
     indexes = undefined;
+    if (request !== requestGeneration || dismissal !== dismissalGeneration ||
+        query !== searchInput.value.trim()) return;
     closeResults();
     searchStatus.textContent = 'Search index could not be loaded. Try again later.';
   }
@@ -344,14 +351,17 @@ searchInput.addEventListener('keydown', (event) => {
     event.preventDefault();
     const chosen = matches[active >= 0 ? active : 0];
     window.location.href = routeUrl(chosen.kind, chosen.code);
-  } else if (event.key === 'Escape') {
-    event.preventDefault();
+  } else if (event.key === 'Escape' || event.key === 'Tab') {
+    if (event.key === 'Escape') event.preventDefault();
+    dismissalGeneration += 1;
     closeResults();
-  } else if (event.key === 'Tab') {
-    closeResults();
+    searchStatus.textContent = 'Search results closed.';
   }
 });
-searchInput.addEventListener('focus', () => { if (matches.length) drawResults(); });
+searchInput.addEventListener('focus', () => {
+  if (matches.length) drawResults();
+  else if (searchInput.value.trim()) updateSearch();
+});
 
 async function start() {
   try {

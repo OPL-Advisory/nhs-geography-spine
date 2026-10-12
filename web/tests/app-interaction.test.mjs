@@ -42,7 +42,9 @@ const release = {
   details_base: 'details',
 };
 
-async function openApp(search, detail, caseName, { releaseResponse = release, requestPaths = [] } = {}) {
+async function openApp(search, detail, caseName, {
+  releaseResponse = release, indexesReady = Promise.resolve(), requestPaths = [],
+} = {}) {
   const nodes = new Map();
   for (const id of ['detail', 'record-search', 'search-results', 'search-status',
     'clocks', 'release-id', 'coverage']) nodes.set(`#${id}`, new Element('div'));
@@ -57,8 +59,13 @@ async function openApp(search, detail, caseName, { releaseResponse = release, re
     requestPaths.push(path);
     let value;
     if (path.endsWith('/release.json')) value = await releaseResponse;
-    else if (path.endsWith('/indexes/constituencies.json')) value = [['E14001063', 'Aldershot']];
-    else if (path.endsWith('/indexes/organisations.json')) value = [['R00001', 'Aldershot Trust', 'nhs_trust']];
+    else if (path.endsWith('/indexes/constituencies.json')) {
+      await indexesReady;
+      value = [['E14001063', 'Aldershot']];
+    } else if (path.endsWith('/indexes/organisations.json')) {
+      await indexesReady;
+      value = [['R00001', 'Aldershot Trust', 'nhs_trust']];
+    }
     else value = detail;
     return { ok: true, json: async () => value };
   };
@@ -103,6 +110,63 @@ test('early search waits for release metadata and honours an edited or cleared q
     if (nextQuery === '') {
       assert.equal(status.textContent, 'Start typing to search the dated snapshot.');
     }
+  }
+});
+
+test('Escape or Tab keeps a pending metadata or index search dismissed', async () => {
+  for (const stage of ['release', 'indexes']) {
+    for (const key of ['Escape', 'Tab']) {
+      let finishPending;
+      const pending = new Promise((resolve) => { finishPending = resolve; });
+      const options = stage === 'release' ? { releaseResponse: pending } : { indexesReady: pending };
+      const nodes = await openApp('', null, `dismiss-${stage}-${key}`, options);
+      const input = nodes.get('#record-search');
+      const results = nodes.get('#search-results');
+      const status = nodes.get('#search-status');
+      input.value = 'Aldershot';
+      input.dispatch('input');
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(status.textContent, 'Searching the pinned snapshot…');
+      assert.equal(input.dispatch('keydown', key), key === 'Escape');
+      if (key === 'Tab') document.activeElement = new Element('button');
+      const dismissedStatus = status.textContent;
+      assert.equal(dismissedStatus, 'Search results closed.');
+      finishPending(release);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(input.value, 'Aldershot');
+      assert.equal(results.hidden, true);
+      assert.equal(results.children.length, 0);
+      assert.equal(input.getAttribute('aria-expanded'), 'false');
+      assert.equal(input.getAttribute('aria-activedescendant'), undefined);
+      assert.equal(status.textContent, dismissedStatus);
+      if (key === 'Escape') assert.equal(input.dispatch('keydown', 'ArrowDown'), true);
+      else input.dispatch('focus');
+      assert.equal(results.hidden, false);
+      assert.equal(results.children.length, 2);
+      assert.equal(input.getAttribute('aria-expanded'), 'true');
+    }
+  }
+});
+
+test('refocusing resumes a dismissed query while its load is still pending', async () => {
+  for (const stage of ['release', 'indexes']) {
+    let finishPending;
+    const pending = new Promise((resolve) => { finishPending = resolve; });
+    const options = stage === 'release' ? { releaseResponse: pending } : { indexesReady: pending };
+    const nodes = await openApp('', null, `refocus-${stage}`, options);
+    const input = nodes.get('#record-search');
+    const results = nodes.get('#search-results');
+    input.value = 'Aldershot';
+    input.dispatch('input');
+    await new Promise((resolve) => setImmediate(resolve));
+    input.dispatch('keydown', 'Tab');
+    assert.equal(results.hidden, true);
+    input.dispatch('focus');
+    finishPending(release);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(results.hidden, false);
+    assert.equal(results.children.length, 2);
+    assert.equal(input.getAttribute('aria-expanded'), 'true');
   }
 });
 
