@@ -115,6 +115,8 @@ def _store(store: Path) -> None:
         raise ValueError("Symlink release store")
     store.mkdir(parents=True, exist_ok=True)
     marker = store / STORE_MARKER
+    if marker.is_symlink() or (store / "candidates").is_symlink():
+        raise ValueError("Symlink inside release store")
     if not marker.exists():
         if any(store.iterdir()):
             raise ValueError("Unowned release store")
@@ -180,7 +182,7 @@ def preview_server(store: Path, user: str, password: str, port: int = 0) -> Thre
     if not user or not password:
         raise ValueError("Preview credentials are required")
     _store(store)
-    token = "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+    token = b"Basic " + base64.b64encode(f"{user}:{password}".encode())
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
@@ -190,7 +192,7 @@ def preview_server(store: Path, user: str, password: str, port: int = 0) -> Thre
             self.do_GET(head=True)
 
         def do_GET(self, head=False):
-            if not hmac.compare_digest(self.headers.get("Authorization", ""), token):
+            if not hmac.compare_digest(self.headers.get("Authorization", "").encode(), token):
                 self.send_response(401)
                 self.send_header("WWW-Authenticate", 'Basic realm="Local Lens rehearsal"')
                 self.send_header("Cache-Control", "no-store")

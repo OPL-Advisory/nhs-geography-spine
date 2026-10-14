@@ -29,7 +29,7 @@ a:hover { color: #002f39; text-decoration-thickness: 2px; }
 .skip-link { position: absolute; z-index: 100; left: 1rem; top: -6rem; padding: .65rem 1rem; background: var(--focus); color: #111; font-weight: 700; }
 .skip-link:focus { top: 1rem; }
 
-.masthead { background: linear-gradient(125deg, #043e48, #0a6069 70%, #357f73); color: #fff; padding: 1.25rem 0 2.65rem; }
+.masthead { background: #075e68; color: #fff; padding: 1.25rem 0 2.65rem; }
 .brandline { display: flex; align-items: center; gap: .55rem; color: #dbf1e9; font-size: .76rem; letter-spacing: .09em; text-transform: uppercase; font-weight: 750; }
 .mark { display: inline-grid; place-items: center; width: 1.9rem; height: 1.9rem; border: 2px solid currentColor; border-radius: 50%; font-size: 1.3rem; line-height: 1; }
 .eyebrow, .section-label { margin: 1.8rem 0 .45rem; color: #bee2db; font-size: .75rem; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }

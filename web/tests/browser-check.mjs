@@ -46,6 +46,7 @@ async function axe(id) {
   }, null, 2));
   assert.deepEqual(result.violations.map((item) => ({ id: item.id, impact: item.impact,
     nodes: item.nodes.map((node) => node.target) })), [], `${id} accessibility violations`);
+  assert.deepEqual(result.incomplete.map((item) => item.id), [], `${id} unresolved automated checks`);
 }
 try {
   await check('J1-researcher', async () => {

@@ -69,6 +69,7 @@ def rehearse(directory: Path, *, full_size: bool = False, browser: bool = True) 
             assert report["checks"]["cache_and_404"]
             report["checks"]["atomic_pin_switch"] = release.pin(store, candidates[1][1])[
                 "snapshot_id"] == report["candidates"][1]["snapshot_id"]
+            assert client.get("/release.json").json()["snapshot_id"] == report["candidates"][1]["snapshot_id"]
             assert client.get(old_path).content == old.content
             release.pin(store, candidates[0][1])
             assert client.get("/release.json").json() == initial
