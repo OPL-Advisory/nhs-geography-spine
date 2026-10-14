@@ -19,7 +19,7 @@
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; min-width: 280px; }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { cursor: pointer; }
 a { color: var(--teal-dark); text-underline-offset: .18em; }
 a:hover { color: #002f39; text-decoration-thickness: 2px; }
@@ -49,6 +49,10 @@ a:hover { color: #002f39; text-decoration-thickness: 2px; }
 .combobox-wrap { position: relative; }
 .search-panel input { width: 100%; min-height: 3.4rem; border: 2px solid #5d787b; border-radius: .45rem; padding: .55rem .8rem; background: #fff; color: var(--ink); font-size: 1.05rem; }
 .search-panel input::placeholder { color: #66777d; }
+.search-panel select { width: 100%; min-height: 2.8rem; margin-bottom: 1rem; padding: .4rem; color: var(--ink); background: #fff; border: 1px solid #5d787b; border-radius: .3rem; }
+.record-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin: .8rem 0 1rem; }
+.record-actions button { min-height: 2.8rem; padding: .4rem .7rem; background: #fff; color: var(--teal-dark); border: 1px solid var(--teal); border-radius: .3rem; }
+.record-actions p, .record-actions input { flex-basis: 100%; min-width: 0; }
 .field-hint { color: var(--muted); font-size: .88rem; margin: .55rem 0 0; }
 #search-results { position: absolute; z-index: 10; top: calc(100% + .2rem); left: 0; right: 0; max-height: min(28rem, 70vh); overflow: auto; list-style: none; padding: .35rem; margin: 0; border: 2px solid var(--teal); border-radius: .45rem; background: #fff; box-shadow: 0 15px 32px #082d3380; }
 .search-option { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .1rem .55rem; padding: .65rem .75rem; border-radius: .3rem; cursor: pointer; }

@@ -10,6 +10,15 @@ export function routeUrl(kind, code) {
   return `?view=${kind}&code=${encodeURIComponent(code)}`;
 }
 
+export function detailPath(release, kind, code) {
+  routeUrl(kind, code);
+  const folder = kind === 'constituency' ? 'constituencies' : 'organisations';
+  const layout = release.detail_layout?.[folder] || 'flat';
+  if (!['flat', 'code-prefix-2'].includes(layout)) throw new Error('Unsupported snapshot layout');
+  const shard = layout === 'code-prefix-2' ? `${code.slice(0, 2)}/` : '';
+  return `${release.details_base}/${folder}/${shard}${code}.json`;
+}
+
 export function parseRoute(search) {
   const params = new URLSearchParams(search);
   if (![...params.keys()].length) return null;
@@ -22,11 +31,12 @@ export function parseRoute(search) {
   return { kind, code };
 }
 
-export function searchRecords(query, constituencyRows, organisationRows, limit = 12) {
+export function searchRecords(query, constituencyRows, organisationRows, limit = 12, kindFilter = 'all') {
   const needle = normalizeSearch(query);
   if (!needle) return [];
   const results = [];
   for (const [kind, rows] of [['constituency', constituencyRows], ['organisation', organisationRows]]) {
+    if (kindFilter !== 'all' && kind !== kindFilter) continue;
     for (const row of rows) {
       const [code, name, type] = row;
       const codeSearch = normalizeSearch(code);

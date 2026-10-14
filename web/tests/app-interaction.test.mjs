@@ -18,6 +18,8 @@ class Element {
   removeAttribute(name) { this.attributes.delete(name); }
   addEventListener(name, callback) { this.listeners.set(name, callback); }
   scrollIntoView() {}
+  focus() { document.activeElement = this; }
+  select() {}
   dispatch(name, key) {
     let prevented = false;
     this.listeners.get(name)({ key, preventDefault: () => { prevented = true; } });
@@ -47,7 +49,7 @@ async function openApp(search, detail, caseName, {
 } = {}) {
   const nodes = new Map();
   for (const id of ['detail', 'record-search', 'search-results', 'search-status',
-    'clocks', 'release-id', 'coverage']) nodes.set(`#${id}`, new Element('div'));
+    'clocks', 'release-id', 'coverage', 'search-kind', 'preview-status']) nodes.set(`#${id}`, new Element('div'));
   globalThis.document = {
     title: '', querySelector: (selector) => nodes.get(selector),
     createElement: (tag) => new Element(tag),

@@ -14,7 +14,7 @@
   <header class="masthead">
     <div class="shell">
       <div class="brandline"><span class="mark" aria-hidden="true">✳</span><span>OPL Advisory · evidence tools</span></div>
-      <p class="eyebrow">Dated public data · read-only preview</p>
+      <p class="eyebrow" id="preview-status">Dated public data · local review candidate</p>
       <h1><a href="index.html">NHS Parliamentary Lens</a></h1>
       <p class="lead">Explore where coded NHS sites are located, and where GP practices have registered patients. Each relationship keeps its own evidence and date.</p>
       <div class="clocks" id="clocks" aria-live="polite">Loading the pinned source snapshot…</div>
@@ -26,14 +26,21 @@
       <section class="search-panel" aria-labelledby="find-heading">
         <p class="section-label">Find a record</p>
         <h2 id="find-heading">Constituency or NHS organisation</h2>
-        <label for="record-search">Search by name, PCON24 code or ODS code</label>
+        <label for="search-kind">What do you want to find?</label>
+        <select id="search-kind">
+          <option value="all">Constituency or organisation</option>
+          <option value="constituency">Constituency and MP</option>
+          <option value="organisation">GP practice, provider or commissioner</option>
+        </select>
+        <label for="record-search">Search by constituency or organisation name, PCON24 code or ODS code</label>
         <div class="combobox-wrap">
           <input id="record-search" type="search" role="combobox" aria-autocomplete="list"
                  aria-controls="search-results" aria-expanded="false" autocomplete="off"
-                 spellcheck="false" placeholder="For example, Aldershot or A81001">
-          <ul id="search-results" role="listbox" hidden></ul>
+                 spellcheck="false" aria-describedby="search-help search-status" placeholder="For example, Aldershot or A81001">
+          <ul id="search-results" role="listbox" aria-label="Matching records" hidden></ul>
         </div>
         <p id="search-status" class="field-hint" role="status" aria-live="polite">Start typing to search the dated snapshot.</p>
+        <p id="search-help" class="field-hint">A place works when it is part of a record name. Street addresses and postcodes are not searchable.</p>
       </section>
 
       <main id="main" tabindex="-1">
@@ -45,6 +52,7 @@
             <section><span class="basis basis-patient">Registered patients</span><h3>Where a GP list is allocated</h3><p>GP registrations are allocated from 2021 LSOAs by the official best-fit lookup. These are registrations, not an exact count of constituency residents.</p></section>
           </div>
           <p class="start-note">Search above to open a dated constituency or organisation record. Direct links to a selected record work on a static host.</p>
+          <p class="record-warning">Find a dated MP, an organisation’s address constituency, or a GP registration distribution. This tool cannot identify service catchments, care received, opt-outs or dementia prevalence.</p>
         </div>
       </main>
     </div>
@@ -54,11 +62,13 @@
       <p><strong>Current MP</strong> means current at the Parliament snapshot. It does not describe representation when the earlier GP extract was taken.</p>
       <p><strong>Site location</strong> is an address allocation. It does not establish an ICB or trust catchment, service coverage or commissioning responsibility.</p>
       <p><strong>Registered patients</strong> come from a GP practice list. They are not a census resident count or a measure of care received.</p>
+      <p><strong>Country coverage:</strong> constituency and MP records cover the UK. GP registrations cover England practices; GP addresses and some site reports include Wales. Trusts and commissioners are mainly England reports. Missing evidence in Scotland, Wales or Northern Ireland does not mean no NHS services.</p>
       <div id="coverage" class="coverage" aria-live="polite"></div>
       <details class="method"><summary>Sources and method</summary>
         <p>Derived from the NHS Geography Spine v0.3 JSON contract. UK Parliament current members, NHS England ODS organisation reports, NHS England GP registrations, ONS LSOA21 best-fit lookup and the NHS Postcode Directory each keep a separate date and role.</p>
         <p>Some codes remain unmapped or lack a current RE6 operator. Absence is shown with a reason; no location or patient population is inferred from a name.</p>
-        <p>Contains information from NHS England, licensed under the current Open Government Licence. Source: Office for National Statistics licensed under the Open Government Licence v.3.0. Contains OS data © Crown copyright and database right 2026. Contains Royal Mail data © Royal Mail copyright and database right 2026. Parliament member information: UK Parliament Members API.</p>
+        <p>Contains information from NHS England, licenced under the current version of the Open Government Licence. Source: Office for National Statistics licensed under the Open Government Licence v.3.0. Contains OS data © Crown copyright and database right 2026. Contains Royal Mail data © Royal Mail copyright and database right 2026. Contains Parliamentary information licensed under the <a href="https://www.parliament.uk/site-information/copyright-parliament/open-parliament-licence/">Open Parliament Licence v3.0</a>.</p>
+        <p>Source pointers: <a href="https://digital.nhs.uk/services/organisation-data-service">ODS</a>, <a href="https://digital.nhs.uk/data-and-information/publications/statistical/patients-registered-at-a-gp-practice/july-2026">GP registrations July 2026</a>, <a href="https://www.ons.gov.uk/methodology/geography/licences/">ONS geography and postcode rights</a>, <a href="https://members-api.parliament.uk/index.html">Parliament Members API</a>. Rights review is pending before external distribution of this candidate.</p>
       </details>
     </aside>
   </div>

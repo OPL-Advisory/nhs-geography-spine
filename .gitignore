@@ -10,4 +10,6 @@ data/.processed-build-*/
 *.duckdb
 web/dist/
 web/.dist-build-*/
+web/.preview/
+web/node_modules/
 data/opt-out-spike/

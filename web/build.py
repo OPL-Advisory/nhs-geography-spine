@@ -19,6 +19,19 @@ MARKER = ".nhs-parliamentary-lens-output"
 MARKER_TEXT = "nhs-parliamentary-lens-static-v1\n"
 CODE = re.compile(r"^[A-Z0-9]+$")
 STATIC_FILES = ("index.html", "app.js", "search.mjs", "styles.css")
+DETAIL_LAYOUT = {"constituencies": "flat", "organisations": "code-prefix-2"}
+NETLIFY_DIRECTORY_LIMIT = 54_000
+
+
+def detail_relative(folder: str, code: str, layout: dict | None = None) -> str:
+    """Keep query-string routes independent of the versioned storage layout."""
+    if folder not in DETAIL_LAYOUT or not CODE.fullmatch(code):
+        raise ValueError("Invalid detail route")
+    scheme = (layout or {}).get(folder, "flat")
+    if scheme not in {"flat", "code-prefix-2"}:
+        raise ValueError(f"Unsupported detail layout: {scheme}")
+    shard = f"{code[:2]}/" if scheme == "code-prefix-2" else ""
+    return f"details/{folder}/{shard}{code}.json"
 
 
 def _encoded(value: object) -> bytes:
@@ -163,7 +176,8 @@ def _check_destination(destination: Path, processed: Path) -> None:
             folder = snapshots / snapshot_id / "details" / kind
             if not folder.is_dir() or folder.is_symlink():
                 raise ValueError(f"Missing site detail folder: {folder}")
-            codes = {f"details/{kind}/{path.name}" for path in folder.glob("*.json")}
+            codes = {detail_relative(kind, path.stem, release.get("detail_layout"))
+                     for path in folder.rglob("*.json")}
             if len(codes) != counts.get(kind):
                 raise ValueError(f"Site detail count differs from release: {folder}")
             expected.update(codes)
@@ -171,9 +185,10 @@ def _check_destination(destination: Path, processed: Path) -> None:
         found = {str(path.relative_to(snapshot)) for path in snapshot.rglob("*") if path.is_file()}
         directories = {str(path.relative_to(snapshot)) for path in snapshot.rglob("*")
                        if path.is_dir()}
+        expected_directories = {str(parent) for name in expected
+                                for parent in Path(name).parents if str(parent) != "."}
         if found != expected or any(path.is_symlink() for path in snapshots.rglob("*")) \
-                or directories != {"indexes", "details", "details/constituencies",
-                                   "details/organisations"} \
+                or directories != expected_directories \
                 or {path.name for path in snapshots.iterdir()} != {snapshot_id}:
             raise ValueError(f"Unowned file in site destination: {destination}")
 
@@ -245,7 +260,7 @@ def build_site(processed: Path, destination: Path, *, validate: bool = True) -> 
                 if code != path.stem or not CODE.fullmatch(code) or code in seen:
                     raise ValueError(f"Invalid or duplicate {kind} code: {path}")
                 seen.add(code)
-                relative = f"details/{folder}/{code}.json"
+                relative = detail_relative(folder, code, DETAIL_LAYOUT)
                 source_hashes[f"json/{folder}/{code}.json"] = _hash(content)
                 asset_hashes[relative] = _write_json(working / relative, detail)
                 if kind == "constituencies":
@@ -266,7 +281,8 @@ def build_site(processed: Path, destination: Path, *, validate: bool = True) -> 
         ods_dates = sorted({record["source_date"] for key, record in sources.items()
                             if key.startswith("ods_")})
         release = {
-            "schema_version": 1, "snapshot_id": snapshot_id,
+            "schema_version": 2, "snapshot_id": snapshot_id,
+            "detail_layout": DETAIL_LAYOUT,
             "source_manifest_sha256": _hash(manifest_bytes),
             "static_asset_sha256": static_hashes,
             "source_code_sha": manifest["code"]["git_sha"],
@@ -281,6 +297,7 @@ def build_site(processed: Path, destination: Path, *, validate: bool = True) -> 
                 "postcode": manifest["geography_vintages"]["postcode"],
             },
             "qa_status": qa["status"],
+            "synthetic": manifest.get("synthetic", False),
             "coverage": {
                 "active_unmapped_provider_addresses": manifest["qa_summary"].get(
                     "provider_active_unmapped_rows", 0),
@@ -296,6 +313,9 @@ def build_site(processed: Path, destination: Path, *, validate: bool = True) -> 
             "asset_hashes_sha256": _hash(hash_bytes),
         }
         _write_json(stage / "release.json", release)
+        for directory in (stage, *(path for path in stage.rglob("*") if path.is_dir())):
+            if sum(path.is_file() for path in directory.iterdir()) > NETLIFY_DIRECTORY_LIMIT:
+                raise ValueError(f"Netlify directory limit exceeded: {directory.relative_to(stage)}")
         _publish(stage, destination)
         return release
     finally:

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeSearch, nextActiveIndex, parseRoute, routeUrl, searchRecords } from '../search.mjs';
+import { detailPath, normalizeSearch, nextActiveIndex, parseRoute, routeUrl, searchRecords } from '../search.mjs';
 
 const constituencies = [['E14001063', 'Aldershot'], ['W07000102', 'Montgomeryshire and Glyndŵr']];
 const organisations = [['A81001', 'Cross Boundary Surgery', 'gp_practice'],
@@ -31,4 +31,25 @@ test('keyboard cycling respects the visible result count', () => {
   assert.equal(nextActiveIndex('ArrowUp', 0, 3), 2);
   assert.equal(nextActiveIndex('ArrowDown', 2, 3), 0);
   assert.equal(nextActiveIndex('ArrowDown', -1, 0), -1);
+});
+
+test('sharded detail lookup preserves deep links and supports v0.4 rollback releases', () => {
+  const legacy = { details_base: 'snapshots/old/details' };
+  const current = { details_base: 'snapshots/new/details',
+    detail_layout: { constituencies: 'flat', organisations: 'code-prefix-2' } };
+  assert.equal(detailPath(legacy, 'organisation', 'A81001'), 'snapshots/old/details/organisations/A81001.json');
+  assert.equal(detailPath(current, 'organisation', 'A81001'), 'snapshots/new/details/organisations/A8/A81001.json');
+  assert.equal(detailPath(current, 'organisation', 'X'), 'snapshots/new/details/organisations/X/X.json');
+  assert.equal(detailPath(current, 'constituency', 'E14001063'), 'snapshots/new/details/constituencies/E14001063.json');
+  assert.throws(() => detailPath(current, 'organisation', '../A81001'), /Invalid record route/);
+  assert.throws(() => detailPath({ ...current, detail_layout: { organisations: 'unknown' } },
+    'organisation', 'A81001'), /Unsupported snapshot layout/);
+  assert.equal(routeUrl('organisation', 'A81001'), '?view=organisation&code=A81001');
+});
+
+test('entry points filter constituency and organisation searches', () => {
+  assert.deepEqual(searchRecords('aldershot', constituencies, organisations, 12, 'constituency')
+    .map((row) => row.code), ['E14001063']);
+  assert.deepEqual(searchRecords('aldershot', constituencies, organisations, 12, 'organisation')
+    .map((row) => row.code), ['R00001']);
 });

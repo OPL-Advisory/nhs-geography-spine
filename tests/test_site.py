@@ -25,8 +25,9 @@ def _candidate(tmp_path: Path) -> tuple[Path, Path, dict]:
 
 def _detail(destination: Path, release: dict, kind: str, code: str) -> dict:
     folder = "constituencies" if kind == "constituency" else "organisations"
-    return json.loads((destination / release["details_base"] / folder /
-                       f"{code}.json").read_text(encoding="utf-8"))
+    snapshot = destination / "snapshots" / release["snapshot_id"]
+    return json.loads((snapshot / site.detail_relative(folder, code, release.get("detail_layout")))
+                      .read_text(encoding="utf-8"))
 
 
 def test_site_routes_dates_vacancy_and_separate_evidence(tmp_path: Path) -> None:
@@ -95,8 +96,8 @@ def test_patient_only_practice_and_unresolved_re6_have_no_missing_profile_links(
                                .read_text(encoding="utf-8")):
         detail = _detail(destination, release, "constituency", code)
         for row in detail["practices"]:
-            exists = (destination / release["details_base"] / "organisations" /
-                      f"{row['org_code']}.json").exists()
+            exists = (destination / "snapshots" / release["snapshot_id"] /
+                      site.detail_relative("organisations", row["org_code"], release["detail_layout"])).exists()
             assert row["profile_available"] is exists
 
 
@@ -109,7 +110,7 @@ def test_site_build_is_deterministic_and_archive_rolls_back(tmp_path: Path) -> N
             "static_asset_sha256"][name]
     archive1 = tmp_path / "candidate-1.tar.gz"
     archive2 = tmp_path / "candidate-2.tar.gz"
-    detail = destination / first["details_base"] / "organisations" / "A81001.json"
+    detail = destination / first["details_base"] / "organisations" / "A8" / "A81001.json"
     original_umask = os.umask(0o022)
     try:
         assert site.build_site(processed, destination) == first
@@ -223,3 +224,37 @@ def test_static_shell_has_keyboard_and_responsive_basics() -> None:
     assert all(key in app for key in ("ArrowDown", "ArrowUp", "Enter", "Escape", "Tab"))
     assert "@media (max-width: 540px)" in css
     assert "prefers-reduced-motion" in css
+
+
+def test_sharded_paths_hashes_and_upgrade_from_flat_v04(tmp_path: Path) -> None:
+    processed, destination, release = _candidate(tmp_path)
+    assert release["detail_layout"] == site.DETAIL_LAYOUT
+    snapshot = destination / "snapshots" / release["snapshot_id"]
+    hashes = json.loads((snapshot / "asset-hashes.json").read_text())
+    relative = site.detail_relative("organisations", "A81001", release["detail_layout"])
+    assert relative == "details/organisations/A8/A81001.json"
+    assert hashlib.sha256((snapshot / relative).read_bytes()).hexdigest() == hashes[
+        "site_asset_sha256"][relative]
+    # An existing v0.4 flat artifact remains an owned, replaceable destination.
+    for path in list((snapshot / "details" / "organisations").rglob("*.json")):
+        path.replace(snapshot / "details" / "organisations" / path.name)
+    for path in (snapshot / "details" / "organisations").iterdir():
+        if path.is_dir():
+            path.rmdir()
+    release.pop("detail_layout")
+    release["schema_version"] = 1
+    (destination / "release.json").write_text(json.dumps(release))
+    upgraded = site.build_site(processed, destination)
+    assert upgraded["schema_version"] == 2
+    assert _detail(destination, upgraded, "organisation", "A81001")["code"] == "A81001"
+
+
+def test_directory_capacity_failure_preserves_previous_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    processed, destination, _ = _candidate(tmp_path)
+    previous = (destination / "release.json").read_bytes()
+    monkeypatch.setattr(site, "NETLIFY_DIRECTORY_LIMIT", 2)
+    with pytest.raises(ValueError, match="Netlify directory limit exceeded"):
+        site.build_site(processed, destination)
+    assert (destination / "release.json").read_bytes() == previous
