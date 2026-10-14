@@ -100,6 +100,7 @@ def generate(inputs: Path, destination: Path, *, organisation_count: int = 64_04
         rng = random.Random(index)
         entropy = "".join(rng.choices(string.ascii_lowercase, k=384))
         record = _organisation(code, f"Synthetic organisation {code} {entropy[:14]}")
+        record["address_member_name"] = f"Demo Member v{variant}"
         record["status"] = "INACTIVE"
         record["source_version"] += ": " + (entropy * (padding // len(entropy) + 1))[:padding]
         build._write_json(inputs / "json" / "organisations" / f"{code}.json", record)

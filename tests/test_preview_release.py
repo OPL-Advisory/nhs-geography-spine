@@ -32,6 +32,24 @@ def test_reproducible_synthetic_archive_and_all_relationship_targets(tmp_path: P
     assert archive.read_bytes() == second.read_bytes()
 
 
+def test_unowned_or_symlink_store_preserves_unrelated_files(tmp_path: Path) -> None:
+    archive, sha = _fixture(tmp_path)
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    note = unrelated / "keep.txt"
+    note.write_text("preserve")
+    with pytest.raises(ValueError, match="Unowned release store"):
+        release.install(archive, sha, unrelated)
+    assert note.read_text() == "preserve"
+    store = tmp_path / "store"
+    store.mkdir()
+    (store / release.STORE_MARKER).write_text("nhs-lens-loopback-store-v1\n")
+    (store / "candidates").symlink_to(unrelated, target_is_directory=True)
+    with pytest.raises(ValueError, match="Symlink inside release store"):
+        release.install(archive, sha, store)
+    assert list(unrelated.iterdir()) == [note]
+
+
 def test_install_hash_and_tampered_asset_cannot_replace_good_pin(tmp_path: Path) -> None:
     archive, sha = _fixture(tmp_path)
     store = tmp_path / "store"
