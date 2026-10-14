@@ -1,0 +1,71 @@
+{
+  "browser": "Chromium 151.0.7922.34",
+  "axeVersion": "4.14.0",
+  "fixtureOnly": true,
+  "cases": [
+    {
+      "id": "J1-researcher",
+      "result": "pass"
+    },
+    {
+      "id": "J2-cross-boundary",
+      "result": "pass"
+    },
+    {
+      "id": "J3-provider-commissioner",
+      "result": "pass"
+    },
+    {
+      "id": "J4-phone-shareable",
+      "result": "pass"
+    },
+    {
+      "id": "keyboard-native-escape-tab-focus",
+      "result": "pass"
+    },
+    {
+      "id": "delayed-startup-and-dismissal",
+      "result": "pass"
+    },
+    {
+      "id": "vacant-inactive-unresolved-empty-partial",
+      "result": "pass"
+    },
+    {
+      "id": "unknown-malformed-missing-snapshot-errors",
+      "result": "pass"
+    },
+    {
+      "id": "reflow320-390-desktop200-400-reduced-motion",
+      "result": "pass"
+    },
+    {
+      "id": "accessible-semantics-smoke-and-clipboard-fallback",
+      "result": "pass"
+    }
+  ],
+  "engineChecks": [
+    {
+      "engine": "Firefox",
+      "version": "153.0",
+      "fourDeepLinks": "pass",
+      "mobile390": "pass",
+      "keyboard": "pass",
+      "axeViolations": 0
+    },
+    {
+      "engine": "WebKit",
+      "version": "26.5",
+      "fourDeepLinks": "pass",
+      "mobile390": "pass",
+      "keyboard": "pass",
+      "axeViolations": 0
+    }
+  ],
+  "pageErrors": [],
+  "limits": [
+    "Local loopback, not provider CDN",
+    "Reflow/text zoom emulation, not native browser UI zoom",
+    "Accessibility-tree smoke; no spoken VoiceOver/NVDA or human user sessions"
+  ]
+}
