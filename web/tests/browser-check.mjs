@@ -50,9 +50,9 @@ async function axe(id) {
 }
 try {
   await check('J1-researcher', async () => {
-    await ready();
     const requests = [];
     page.on('request', (request) => requests.push(request.url()));
+    await ready();
     assert.ok(!requests.some((url) => url.includes('/indexes/')));
     await page.selectOption('#search-kind', 'constituency');
     await page.locator('#record-search').fill('Demo Harbour');
