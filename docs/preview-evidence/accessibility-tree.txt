@@ -78,4 +78,4 @@
   - group: Sources and method
 - contentinfo:
   - paragraph: Independent OPL Advisory preview · not an NHS or UK Parliament service. No live source calls are made in this browser.
-  - paragraph: Pinned snapshot 6d59c3be5bad · 650 constituencies · 64,040 ODS codes
+  - paragraph: Pinned snapshot e4356d573fc0 · 650 constituencies · 64,040 ODS codes

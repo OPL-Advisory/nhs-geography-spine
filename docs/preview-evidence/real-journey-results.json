@@ -20,8 +20,8 @@
     }
   ],
   "timings": {
-    "initialDeepLinkMs": 322,
-    "firstOrganisationSearchMs": 296
+    "initialDeepLinkMs": 116,
+    "firstOrganisationSearchMs": 203
   },
   "noExternalRequests": true,
   "limits": [

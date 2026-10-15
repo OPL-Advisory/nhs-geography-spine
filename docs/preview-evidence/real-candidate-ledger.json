@@ -1,6 +1,6 @@
 {
-  "archive_bytes": 22868659,
-  "archive_sha256": "0325d760f940cb53e5b136afc6e0f9a4b1e206163af5ef6217288534f41f6d40",
+  "archive_bytes": 22868595,
+  "archive_sha256": "1fa638ebd9a015864b9fb9bba30646533c34c887ca390defb9966256aaf4eaee",
   "consumer_version": "0.5.0",
   "coverage": {
     "active_unmapped_provider_addresses": 4,
@@ -24,7 +24,7 @@
     "unmapped_total": 105638
   },
   "performance_bytes": {
-    "initial_gzip_sum": 13467,
+    "initial_gzip_sum": 13516,
     "largest_detail_raw": 621790,
     "lazy_indexes_gzip_sum": 658827
   },
@@ -44,31 +44,31 @@
     "parliament_current_constituencies": "47f9b74acd9944e891867070f84cefb052e86bb220c27ad47d5b4a8d594aff96"
   },
   "scope": "Local verification summary only; real source/profile files and archive excluded from Git",
-  "site_implementation_commit": "2bd1b595d6e4675eca63a23ca0070546271e2a1e",
+  "site_implementation_commit": "9c9e72c170bf9c218948261c0bde397327b002ad",
   "source_build_code": {
     "git_dirty": false,
-    "git_sha": "78cd4bc739ea7bdc7cf810b866d544cf336402d9",
+    "git_sha": "9c9e72c170bf9c218948261c0bde397327b002ad",
     "package_version": "0.3.0"
   },
   "source_contract_version": "0.3.0",
   "static_asset_sha256": {
     "app.js": "6d95e201005a9ab29858dff3fd8ba43191e53da2054ad3e12e785937e5716e34",
-    "index.html": "87df6102e3da91a73ce0bf5165b2b48aeaf364c5752256b8ae3cdb7b3f4e84a4",
+    "index.html": "83516b217acc1cbd767efceecfbbfd9c3edd72b3b5257b5deb825dec7e7e3dfa",
     "search.mjs": "7aa9901ce1edc3e77a8343d9a554d7aae2bd95899b874cfd73e34bd55de15484",
     "styles.css": "63735372eb1075b7d742adfbe978b533c626a344a70af0c6b4c1d780b04649a0"
   },
   "verification": {
-    "bytes": 232699936,
+    "bytes": 232699984,
     "counts": {
       "constituencies": 650,
       "organisations": 64040
     },
     "file_count": 64699,
-    "largest_directory": "snapshots/30609c6033cf33c11e1fafe881d23ffbca1ee1237a8037ac971de9b2893a14bc/details/organisations/RX",
+    "largest_directory": "snapshots/3fedb89f21fd4e7b50ac777537cc6e365ad94214782502003c48eb0d1e75ad75/details/organisations/RX",
     "largest_directory_files": 5718,
-    "release_sha256": "d4af8fcf0b06b06a5142b750982f340a8168dd07e0d619bced6e46ff7721de07",
-    "snapshot_id": "30609c6033cf33c11e1fafe881d23ffbca1ee1237a8037ac971de9b2893a14bc",
-    "source_manifest_sha256": "b69ab89148b1f73a49ae7359d078aac26b1a6c159313e39eb85a704ff0efe95d",
+    "release_sha256": "c7ace682f1e086cf643d69f95b6e2ad6ef8cc12ef24c81bc2ed1a5214fc1eee0",
+    "snapshot_id": "3fedb89f21fd4e7b50ac777537cc6e365ad94214782502003c48eb0d1e75ad75",
+    "source_manifest_sha256": "08fdc26acdd127e1c2e331917062b6610b60d53a21a58b3ea486899f29d4f866",
     "synthetic": false,
     "verified_relationship_targets": true
   }

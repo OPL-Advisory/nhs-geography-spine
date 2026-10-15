@@ -8,16 +8,15 @@ analytics, indicator publication or automatic merge is part of this work.
 ## Candidate and usefulness
 
 v0.5.0 consumer, based on merged v0.4 main `c17ab5a`. Clean source-build commit
-`78cd4bc739ea7bdc7cf810b866d544cf336402d9`; site implementation `2bd1b59`
-adds only synthetic-fixture/storage-test changes after that build. The accepted
+`9c9e72c170bf9c218948261c0bde397327b002ad`, including both 15 October review fixes. The accepted
 pipeline retains its v0.3 data contract. Later PR commits add evidence/docs only.
 
 | Real local artifact | SHA-256 |
 | --- | --- |
-| Source/build manifest | `b69ab89148b1f73a49ae7359d078aac26b1a6c159313e39eb85a704ff0efe95d` |
-| Snapshot / asset-hash manifest | `30609c6033cf33c11e1fafe881d23ffbca1ee1237a8037ac971de9b2893a14bc` |
-| Release JSON | `d4af8fcf0b06b06a5142b750982f340a8168dd07e0d619bced6e46ff7721de07` |
-| Candidate archive | `0325d760f940cb53e5b136afc6e0f9a4b1e206163af5ef6217288534f41f6d40` |
+| Source/build manifest | `08fdc26acdd127e1c2e331917062b6610b60d53a21a58b3ea486899f29d4f866` |
+| Snapshot / asset-hash manifest | `3fedb89f21fd4e7b50ac777537cc6e365ad94214782502003c48eb0d1e75ad75` |
+| Release JSON | `c7ace682f1e086cf643d69f95b6e2ad6ef8cc12ef24c81bc2ed1a5214fc1eee0` |
+| Candidate archive | `1fa638ebd9a015864b9fb9bba30646533c34c887ca390defb9966256aaf4eaee` |
 
 The [ledger](preview-evidence/real-candidate-ledger.json) contains raw input
 hashes, clocks and all four static-file hashes. Real generated data/archives
@@ -34,8 +33,8 @@ search still depends on record names; postcode/street search is unavailable.
 
 ## Validation, capacity and rollback
 
-- **119 Python tests, 12 Node tests, Ruff and diff checks pass.**
-  [Implementation Actions](https://github.com/OPL-Advisory/nhs-geography-spine/actions/runs/38646985978)
+- **122 Python tests, 12 Node tests, Ruff and diff checks pass.**
+  [Implementation Actions](https://github.com/OPL-Advisory/nhs-geography-spine/actions/runs/38700333574)
   passed; the review PR's checks must also pass on its final head.
 - Fresh frozen-source pipeline and saved-output QA: `pass_with_warnings`;
   **63,436,502 registrations, reconciliation difference 0**. Retained warnings:
@@ -47,15 +46,15 @@ search still depends on record names; postcode/street search is unavailable.
   directory **5,718**, below Netlify's [54,000 limit](https://docs.netlify.com/deploy/deploy-overview/);
   v0.4's 64,040-flat-file directory exceeded it. Sharded hash paths preserve
   query links; schema-1 flat lookup remains supported for rollback.
-- Initial shell/release gzip sum **13.47 KB**; lazy indexes **658.83 KB**; largest
-  detail **621.79 KB raw**. Local real deep-link load **322 ms**, first organisation
-  search **296 ms**: automation on loopback, not mobile network or human timings.
+- Initial shell/release gzip sum **13.52 KB**; lazy indexes **658.83 KB**; largest
+  detail **621.79 KB raw**. Local real deep-link load **116 ms**, first organisation
+  search **203 ms**: automation on loopback, not mobile network or human timings.
 - [Full synthetic rehearsal](preview-evidence/synthetic-hosting-results.json):
   same 64,699 files; **221.70 MB** expanded (95.3% of real), **25.62 MB** archive
   (112.0%), indexes **1.02 MB gzip**, largest shard **10,000**. It stresses file
   count/upload bytes and index transfer; it does not replicate real payload shapes.
   Both complete candidates pass every hash/link check; repeat archive is identical;
-  local extraction/verification took **34.61 / 38.13 s**. Protected serving,
+  local extraction/verification took **38.53 / 30.78 s**. Protected serving,
   401/404/cache/query routes and pin **1 → 2 → 1**, including previous-session
   snapshot assets, pass. No provider upload/CDN test is claimed.
 - [Browser evidence](preview-evidence/browser-results.json): Chromium 151,
@@ -67,6 +66,23 @@ search still depends on record names; postcode/street search is unavailable.
   exposed low contrast; the existing dark teal now provides ≥5.37:1 for masthead
   small text ([contrast calculation](preview-evidence/masthead-contrast.json)). Accessibility-tree smoke is recorded; spoken screen-reader and
   native UI zoom are **not** completed or certified.
+
+## Review follow-up — 15 October 2026
+
+Both P2 findings are addressed. The loopback host binds the initial document,
+script, metadata and data requests to one immutable candidate URL before serving
+shell bytes. The [initial-load regression](preview-evidence/pin-during-load.json)
+pauses metadata after the script loads, switches schema-1 flat → schema-2 sharded
+and back, then confirms the original page loads without 404s or mixed metadata.
+Root aliases reselect the current pin; copied candidate links retain their release.
+A provider must still demonstrate equivalent binding before external approval.
+
+GP source URL/version now come from the accepted manifest and are HTML-escaped;
+local/file fixtures fall back to the NHS publication series. An October extract
+is built and validated through the fixture pipeline; its shell reports October,
+contains no hard-coded July link, and exports no local source pathname. URL and
+label escaping also have regression coverage. No source vintage was refreshed
+or silently substituted in the real candidate.
 
 ## Blockers and approval decisions
 
