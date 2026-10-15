@@ -63,6 +63,17 @@ Random credentials stay in the server/test process environment, never in static
 files or reports. HTTP Basic here is **loopback rehearsal only**, not a remote
 authentication/TLS implementation. The server stops when the run ends.
 
+The loopback host redirects root/deep links and unprefixed shell aliases to
+`/candidates/<archive-sha>/...` with `no-store`. The document's scripts, relative
+imports, release metadata, indexes and details then keep that candidate URL even
+if the current pin changes during the initial load. No session cookies are
+needed. Opening the root again selects the new pin; a copied candidate link
+retains the earlier release. Unauthorised requests to either form are denied.
+CI pauses the first release request after the script has loaded, switches between
+a schema-1 flat-client fixture and schema 2 in both directions, then checks the
+original detail loads without errors. A provider must prove equivalent binding
+before any external trial; retaining old data alone does not prevent shell skew.
+
 ## Prepare an approved candidate without changing a host
 
 1. Freeze reviewed code, sources and their hashes. Rerun pipeline/source QA,

@@ -24,6 +24,13 @@ Use a fresh directory. Install dev-only JS tools with
 Neither command uploads a candidate or changes a host. Human testing, spoken
 screen-reader/native zoom and approved provider checks remain separate gates.
 
+The protected loopback host pins each initial page load to an immutable
+`/candidates/<archive-sha>/` URL before serving shell bytes; a current-pin change
+cannot mix that page's script and metadata. Copied candidate links retain their
+release. GP source links/labels are projected from the accepted manifest; local
+file fixtures use the non-vintage NHS publication series rather than exposing
+local paths. The source-linked HTML bytes are covered by the static hashes.
+
 This is a read-only browser consumer of the accepted v0.3 JSON and QA contracts. It makes no browser calls to NHS, ODS, ONS or Parliament APIs and has no backend, cookies, analytics or secrets. The site builder reads the accepted `data/processed` bundle, reruns saved-output QA, projects only fields needed for the pages, creates sorted search indexes and per-code details, and publishes a complete local directory atomically. The output is ignored by Git.
 
 ## Build and preview

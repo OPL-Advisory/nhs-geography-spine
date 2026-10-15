@@ -5,15 +5,64 @@ import json
 import os
 import tarfile
 import zipfile
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
+import yaml
 from test_parliament import _build, _parliament_fixture
 from test_pipeline import _csv
 
 from nhs_geo_spine.build import build_pipeline
 from nhs_geo_spine.sources import fetch_sources, load_config
 from web import build as site
+
+
+def test_non_july_extract_projects_accepted_gp_source(tmp_path: Path) -> None:
+    config, raw, _ = _parliament_fixture(tmp_path)
+    settings = yaml.safe_load(config.read_text())
+    gp = settings["gp_registered_patients_lsoa"]
+    gp.update(source_date="2026-10-01", source_version="October 2026 LSOA21 all persons")
+    config.write_text(yaml.safe_dump(settings))
+    patients = Path(gp["url"].removeprefix("file://"))
+    with zipfile.ZipFile(patients) as archive:
+        members = {name: archive.read(name).replace(b"2026-07-01", b"2026-10-01")
+                   for name in archive.namelist()}
+    with zipfile.ZipFile(patients, "w") as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    fetch_sources(load_config(config), raw)
+    processed = tmp_path / "processed"
+    build_pipeline(config, raw, processed, offline=True)
+    destination = tmp_path / "site"
+    release = site.build_site(processed, destination)
+    html = (destination / "index.html").read_text()
+    assert release["dates"]["gp_patients"] == "2026-10-01"
+    assert 'href="' + site.GP_PUBLICATIONS + '"' in html
+    assert "GP registrations — October 2026 LSOA21 all persons" in html
+    assert "july-2026" not in html and "GP registrations July 2026" not in html
+    assert gp["url"] not in html  # Never export the local fixture pathname.
+
+
+def test_gp_manifest_url_and_label_are_projected_and_escaped(tmp_path: Path) -> None:
+    processed, destination, _ = _candidate(tmp_path)
+    path = processed / "build_manifest.json"
+    manifest = json.loads(path.read_bytes())
+    source = manifest["sources"]["gp_registered_patients_lsoa"]
+    source.update(url='https://example.test/october.zip?edition=2026&format="csv"',
+                  source_version='October 2026 <ALL> & "persons"')
+    path.write_text(json.dumps(manifest))
+    site.build_site(processed, destination)
+    class Links(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "a" and attrs.get("id") == "gp-source":
+                self.gp_url = attrs["href"]
+    parser = Links()
+    html = (destination / "index.html").read_text()
+    parser.feed(html)
+    assert parser.gp_url == source["url"]
+    assert "October 2026 &lt;ALL&gt; &amp; &quot;persons&quot;" in html
 
 
 def _candidate(tmp_path: Path) -> tuple[Path, Path, dict]:

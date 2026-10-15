@@ -9,8 +9,10 @@ import json
 import re
 import shutil
 import tarfile
+from html import escape
 from pathlib import Path
 from tempfile import NamedTemporaryFile, mkdtemp
+from urllib.parse import urlsplit
 
 from nhs_geo_spine.qa import audit_outputs
 
@@ -21,6 +23,19 @@ CODE = re.compile(r"^[A-Z0-9]+$")
 STATIC_FILES = ("index.html", "app.js", "search.mjs", "styles.css")
 DETAIL_LAYOUT = {"constituencies": "flat", "organisations": "code-prefix-2"}
 NETLIFY_DIRECTORY_LIMIT = 54_000
+GP_PUBLICATIONS = "https://digital.nhs.uk/data-and-information/publications/statistical/patients-registered-at-a-gp-practice"
+
+
+def _source_html(sources: dict) -> str:
+    """Render the accepted source, with no local fixture paths in the shell."""
+    gp = sources["gp_registered_patients_lsoa"]
+    url = gp.get("url", "")
+    if urlsplit(url).scheme not in {"http", "https"}:
+        url = GP_PUBLICATIONS
+    label = f"GP registrations — {gp.get('source_version', gp['source_date'])}"
+    return (HERE / "index.html").read_text(encoding="utf-8").replace(
+        "{{GP_SOURCE_URL}}", escape(url, quote=True)).replace(
+        "{{GP_SOURCE_LABEL}}", escape(label))
 
 
 def detail_relative(folder: str, code: str, layout: dict | None = None) -> str:
@@ -227,7 +242,10 @@ def build_site(processed: Path, destination: Path, *, validate: bool = True) -> 
     try:
         static_hashes: dict[str, str] = {}
         for name in STATIC_FILES:
-            shutil.copyfile(HERE / name, stage / name)
+            if name == "index.html":
+                (stage / name).write_text(_source_html(sources), encoding="utf-8")
+            else:
+                shutil.copyfile(HERE / name, stage / name)
             static_hashes[name] = _hash((stage / name).read_bytes())
         (stage / MARKER).write_text(MARKER_TEXT, encoding="utf-8")
         working = stage / "snapshots" / "pending"

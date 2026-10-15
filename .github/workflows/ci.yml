@@ -21,6 +21,7 @@ jobs:
       - run: node --test web/tests/*.test.mjs
       - run: npm ci --prefix web --ignore-scripts
       - run: cd web && npx playwright install --with-deps chromium firefox webkit
+      - run: LENS_BROWSER_CHECKS=1 LENS_PIN_REPORT="$RUNNER_TEMP/pin-during-load.json" python -m pytest -q tests/test_preview_release.py -k initial_page
       - run: python -m web.rehearse --directory "$RUNNER_TEMP/lens-preview"
       - uses: actions/upload-artifact@v4
         if: always()
@@ -29,3 +30,4 @@ jobs:
           path: |
             ${{ runner.temp }}/lens-preview/browser
             ${{ runner.temp }}/lens-preview/hosting-results.json
+            ${{ runner.temp }}/pin-during-load.json

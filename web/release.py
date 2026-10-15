@@ -201,19 +201,32 @@ def preview_server(store: Path, user: str, password: str, port: int = 0) -> Thre
                 return
             url = urlsplit(self.path)
             name = unquote(url.path).lstrip("/")
-            if not name:
-                self.send_response(302)
-                self.send_header("Location", "/index.html" + ("?" + url.query if url.query else ""))
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                return
             try:
-                pointer = json.loads((store / "current.json").read_bytes())
-                candidate = store / "candidates" / pointer["archive_sha256"]
-                if name.startswith("snapshots/"):
+                if name.startswith("candidates/"):
+                    _, archive_sha, name = name.split("/", 2)
+                    if not SHA.fullmatch(archive_sha):
+                        raise FileNotFoundError(name)
+                    candidate = store / "candidates" / archive_sha
+                elif not name or name in {*build.STATIC_FILES, "release.json"}:
+                    pointer = json.loads((store / "current.json").read_bytes())
+                    archive_sha = pointer["archive_sha256"]
+                    if not SHA.fullmatch(archive_sha):
+                        raise FileNotFoundError(name)
+                    # Bind the document and every relative import/fetch to this
+                    # candidate before returning any shell bytes. No cookies.
+                    location = f"/candidates/{archive_sha}/{name or 'index.html'}"
+                    self.send_response(302)
+                    self.send_header("Location", location + ("?" + url.query if url.query else ""))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Vary", "Authorization")
+                    self.end_headers()
+                    return
+                elif name.startswith("snapshots/"):
                     # Retain assets requested by a browser which opened a previous pin.
                     candidates = sorted((store / "candidates").iterdir())
-                    candidate = next((root for root in candidates if (root / name).is_file()), candidate)
+                    candidate = next(root for root in candidates if (root / name).is_file())
+                else:
+                    raise FileNotFoundError(name)
                 path = candidate / name
                 if ".." in Path(name).parts or Path(name).is_absolute() or path.is_symlink() \
                         or not path.resolve().is_relative_to(candidate.resolve()) \
@@ -221,7 +234,7 @@ def preview_server(store: Path, user: str, password: str, port: int = 0) -> Thre
                         or not path.is_file():
                     raise FileNotFoundError(name)
                 content = path.read_bytes()
-            except (OSError, ValueError, KeyError):
+            except (OSError, ValueError, KeyError, StopIteration):
                 self.send_error(404, "Asset unavailable in the pinned candidate")
                 return
             self.send_response(200)
