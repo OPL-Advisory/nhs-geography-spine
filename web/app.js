@@ -1,4 +1,4 @@
-import { nextActiveIndex, parseRoute, routeUrl, searchRecords } from './search.mjs';
+import { detailPath, nextActiveIndex, parseRoute, routeUrl, searchRecords } from './search.mjs';
 
 const $ = (selector) => document.querySelector(selector);
 const number = new Intl.NumberFormat('en-GB');
@@ -7,9 +7,10 @@ const detailHost = $('#detail');
 const searchInput = $('#record-search');
 const resultsHost = $('#search-results');
 const searchStatus = $('#search-status');
+const searchKind = $('#search-kind');
 const releaseReady = fetchJson('release.json');
 let release;
-let indexes;
+let indexes = {};
 let matches = [];
 let active = -1;
 let requestGeneration = 0;
@@ -37,6 +38,43 @@ function heading(label, title) {
   const wrap = el('div', 'record-heading');
   append(wrap, el('p', 'section-label', label), el('h2', '', title));
   return wrap;
+}
+
+function recordActions() {
+  const actions = el('div', 'record-actions');
+  const back = el('button', '', 'Back to search');
+  back.type = 'button';
+  back.addEventListener('click', () => {
+    searchInput.focus();
+    searchInput.scrollIntoView({ block: 'center' });
+  });
+  const copy = el('button', '', 'Copy record link');
+  copy.type = 'button';
+  const status = el('p', 'field-hint');
+  status.setAttribute('role', 'status');
+  const fallback = el('input');
+  fallback.type = 'text';
+  fallback.readOnly = true;
+  fallback.hidden = true;
+  fallback.setAttribute('aria-label', 'Record link to copy');
+  copy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      status.textContent = 'Link copied. Check the source dates when opening it.';
+    } catch {
+      fallback.value = window.location.href;
+      fallback.hidden = false;
+      fallback.focus();
+      fallback.select();
+      status.textContent = 'Copy the selected link. Check the source dates when opening it.';
+    }
+  });
+  append(actions, back, copy, status, fallback);
+  return actions;
+}
+
+function odsPeriod() {
+  return release.dates.ods.map(date).join(', ');
 }
 
 function date(value) {
@@ -102,22 +140,23 @@ function pagedList(container, rows, render, pageSize = 30) {
 
 function renderConstituency(data) {
   const root = el('article', 'record');
-  append(root, heading(`Westminster constituency · ${data.code}`, data.name));
+  append(root, heading(`Westminster constituency · ${data.code}`, data.name), recordActions());
   const member = data.member;
   const memberText = member.status === 'vacant' ? 'Vacant' : member.name || 'Member not supplied';
   const cards = el('div', 'metrics');
   append(cards,
     metric('Current MP', memberText, member.party ? `${member.party} · ${date(member.snapshot_date)}` :
       `As at ${date(member.snapshot_date)}`),
-    metric('Coded site addresses', number.format(data.site_organisation_count), 'Physical location evidence'),
-    metric('GP practices serving this area', number.format(data.serving_gp_practice_count), 'Registered-patient evidence'),
+    metric('Coded site addresses', number.format(data.site_organisation_count), `ODS ${odsPeriod()}`),
+    metric('GP practices with mapped registrations', number.format(data.serving_gp_practice_count),
+      `GP extract ${date(data.patient_source_period)}`),
     metric('Mapped registrations', number.format(data.registered_patients_mapped),
       `GP extract ${date(data.patient_source_period)}`));
   root.append(cards);
   root.append(el('p', 'record-warning', 'The MP is current at the Parliament snapshot. GP registrations use an earlier extract and LSOA21 best-fit allocation; they are not an exact resident count.'));
 
   const siteSection = section('Physical NHS locations', ['site', 'Site location'],
-    'Active ODS coded provider and commissioner addresses mapped to this constituency. Codes count organisations or sites, not distinct buildings.');
+    `Active ODS coded provider and commissioner addresses mapped to this constituency. Codes count organisations or sites, not distinct buildings. ODS ${odsPeriod()}.`);
   if (!data.sites.length) siteSection.append(empty('No active coded site address maps here in this source snapshot. This does not mean no NHS service is present.'));
   else {
     const groups = new Map();
@@ -152,6 +191,12 @@ function renderConstituency(data) {
       : el('span', '', row.org_name || row.org_code), el('span', 'code', row.org_code));
     append(item, line, el('span', 'list-meta',
       `${registrations(row.registered_patients)} · ${share(row.share_of_practice_list)} of practice list`));
+    if (row.address_pcon24cd && row.address_pcon24cd !== data.code) {
+      const address = el('p', 'list-meta');
+      append(address, document.createTextNode('Practice address is in another constituency: '),
+        link('constituency', row.address_pcon24cd, row.address_pcon24cd));
+      item.append(address);
+    }
     if (!row.profile_available) item.append(el('span', 'list-meta',
       'Practice profile unavailable in this ODS snapshot'));
     return item;
@@ -174,12 +219,12 @@ function renderConstituency(data) {
 
 function renderOrganisation(data) {
   const root = el('article', 'record');
-  append(root, heading(`${typeLabel(data.organisation_type)} · ODS ${data.code}`, data.name || data.code));
+  append(root, heading(`${typeLabel(data.organisation_type)} · ODS ${data.code}`, data.name || data.code), recordActions());
   const cards = el('div', 'metrics');
   append(cards,
     metric('ODS status', data.status || 'Not supplied', `ODS snapshot ${date(data.source_snapshot_date)}`),
     metric('Address constituency', data.address.pcon24nm || 'Not mapped',
-      data.address.pcon24cd || data.address.unmapped_reason || 'No source allocation'),
+      `${data.address.pcon24cd || data.address.unmapped_reason || 'No source allocation'} · Postcode directory ${release.dates.postcode}`),
     metric('Address MP', data.address.member_status === 'vacant' ? 'Vacant' :
       data.address.member_name || 'Unavailable',
       `Parliament ${date(data.address.member_snapshot_date)}`));
@@ -216,6 +261,7 @@ function renderOrganisation(data) {
           data.operator.current_address_pcon24cd),
         document.createTextNode(` · MP ${data.operator.current_address_member_name ||
           data.operator.current_address_member_status || 'unavailable'}`));
+      p.append(document.createTextNode(` · Parliament ${date(release.dates.parliament)}`));
       operator.append(p);
     } else if (!data.operator.current_at_snapshot) {
       const statusReason = data.status === 'INACTIVE'
@@ -255,8 +301,10 @@ function renderOrganisation(data) {
 
 function renderError(message) {
   const box = el('section', 'detail-error');
+  box.setAttribute('role', 'alert');
   append(box, el('p', 'section-label', 'Record unavailable'), el('h2', '', message),
-    el('p', '', 'Check the code and the dated source snapshot. Search by name or code above.'));
+    el('p', '', 'Check the code and the dated source snapshot. Search by name or code above.'),
+    recordActions());
   detailHost.replaceChildren(box);
 }
 
@@ -309,20 +357,21 @@ function drawResults() {
   searchStatus.textContent = `${matches.length} matching records shown. Use arrow keys and Enter, or select a result.`;
 }
 
-async function loadIndexes() {
-  if (!indexes) {
-    indexes = releaseReady.then((metadata) => Promise.all([
-      fetchJson(metadata.indexes.constituencies.path),
-      fetchJson(metadata.indexes.organisations.path),
+async function loadIndexes(kind) {
+  if (!indexes[kind]) {
+    indexes[kind] = releaseReady.then((metadata) => Promise.all([
+      kind === 'organisation' ? [] : fetchJson(metadata.indexes.constituencies.path),
+      kind === 'constituency' ? [] : fetchJson(metadata.indexes.organisations.path),
     ]));
   }
-  return indexes;
+  return indexes[kind];
 }
 
 async function updateSearch() {
   const request = ++requestGeneration;
   const dismissal = dismissalGeneration;
   const query = searchInput.value.trim();
+  const kind = searchKind?.value || 'all';
   if (!query) {
     matches = [];
     closeResults();
@@ -333,13 +382,13 @@ async function updateSearch() {
   closeResults();
   searchStatus.textContent = 'Searching the pinned snapshot…';
   try {
-    const [constituencies, organisations] = await loadIndexes();
+    const [constituencies, organisations] = await loadIndexes(kind);
     if (request !== requestGeneration || query !== searchInput.value.trim()) return;
-    matches = searchRecords(query, constituencies, organisations);
+    matches = searchRecords(query, constituencies, organisations, 12, kind);
     if (dismissal !== dismissalGeneration) return;
     drawResults();
   } catch {
-    indexes = undefined;
+    delete indexes[kind];
     if (request !== requestGeneration || dismissal !== dismissalGeneration ||
         query !== searchInput.value.trim()) return;
     closeResults();
@@ -348,6 +397,7 @@ async function updateSearch() {
 }
 
 searchInput.addEventListener('input', updateSearch);
+searchKind?.addEventListener('change', updateSearch);
 searchInput.addEventListener('keydown', (event) => {
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     if (!matches.length) return;
@@ -373,6 +423,9 @@ searchInput.addEventListener('focus', () => {
 async function start() {
   try {
     release = await releaseReady;
+    if (release.synthetic) {
+      $('#preview-status').textContent = 'Synthetic demonstration — all names, codes and figures are fictional.';
+    }
     const d = release.dates;
     $('#clocks').replaceChildren(
       el('span', '', `Parliament · ${date(d.parliament)}`),
@@ -387,8 +440,7 @@ async function start() {
     const route = parseRoute(window.location.search);
     if (!route) return;
     if (route.error) { renderError(route.error); return; }
-    const folder = route.kind === 'constituency' ? 'constituencies' : 'organisations';
-    const detail = await fetchJson(`${release.details_base}/${folder}/${route.code}.json`);
+    const detail = await fetchJson(detailPath(release, route.kind, route.code));
     if (detail.code !== route.code || detail.kind !== route.kind) throw new Error('Record mismatch');
     if (route.kind === 'constituency') renderConstituency(detail);
     else renderOrganisation(detail);

@@ -1,0 +1,18 @@
+{
+  "scope": "Fictional initial-load race regression on authenticated loopback",
+  "browser": "151.0.7922.34",
+  "cases": [
+    {
+      "direction": "schema1-to-schema2",
+      "switchAfterScriptBeforeRelease": true,
+      "originalCandidateRetained": true,
+      "detailLoaded": true
+    },
+    {
+      "direction": "schema2-to-schema1",
+      "switchAfterScriptBeforeRelease": true,
+      "originalCandidateRetained": true,
+      "detailLoaded": true
+    }
+  ]
+}

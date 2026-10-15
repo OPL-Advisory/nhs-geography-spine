@@ -1,0 +1,21 @@
+{
+  "method": "WCAG relative luminance, declared CSS colours; opaque masthead background replaces gradient",
+  "background": "#075e68",
+  "small_text": [
+    {
+      "foreground": "#dbf1e9",
+      "ratio": 6.32
+    },
+    {
+      "foreground": "#bee2db",
+      "ratio": 5.37
+    },
+    {
+      "foreground": "#e9f3f0",
+      "ratio": 6.6
+    }
+  ],
+  "minimum_ratio": 5.37,
+  "AA_normal_text_minimum": 4.5,
+  "scope": "Masthead declared opaque colour pairs; other tested page text checked with axe"
+}

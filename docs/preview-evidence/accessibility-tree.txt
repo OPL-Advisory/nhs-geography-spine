@@ -1,0 +1,81 @@
+- link "Skip to results":
+  - /url: "#main"
+- banner:
+  - text: OPL Advisory · evidence tools
+  - paragraph: Synthetic demonstration — all names, codes and figures are fictional.
+  - heading "NHS Parliamentary Lens" [level=1]:
+    - link "NHS Parliamentary Lens":
+      - /url: index.html
+  - paragraph: Explore where coded NHS sites are located, and where GP practices have registered patients. Each relationship keeps its own evidence and date.
+  - text: Parliament · 1 January 2026 GP registrations · 1 January 2026 ODS · 1 January 2026 Postcode allocation · Synthetic directory; no real postcodes Constituency geography · Synthetic July 2024-shaped codes
+- region "Constituency or NHS organisation":
+  - paragraph: Find a record
+  - heading "Constituency or NHS organisation" [level=2]
+  - text: What do you want to find?
+  - combobox "What do you want to find?":
+    - option "Constituency or organisation" [selected]
+    - option "Constituency and MP"
+    - option "GP practice, provider or commissioner"
+  - text: Search by constituency or organisation name, PCON24 code or ODS code
+  - combobox "Search by constituency or organisation name, PCON24 code or ODS code"
+  - status: Start typing to search the dated snapshot.
+  - paragraph: A place works when it is part of a record name. Street addresses and postcodes are not searchable.
+- main:
+  - article:
+    - paragraph: gp practice · ODS XG00001
+    - heading "Demo Cross Boundary Practice" [level=2]
+    - button "Back to search"
+    - button "Copy record link"
+    - status
+    - text: ODS status
+    - strong: ACTIVE
+    - text: ODS snapshot 1 January 2026 Address constituency
+    - strong: Demo Harbour
+    - text: X14000001 · Postcode directory Synthetic directory; no real postcodes Address MP
+    - strong: Demo Member v1
+    - text: Parliament 1 January 2026
+    - heading "Physical address" [level=3]
+    - text: Site location
+    - paragraph: A postcode-to-PCON24 allocation of this ODS address. It does not define the organisation’s population or service area.
+    - paragraph:
+      - link "Demo Harbour (X14000001)":
+        - /url: "?view=constituency&code=X14000001"
+      - text: · postcode_direct
+    - heading "ODS operating relationship" [level=3]
+    - text: ODS RE6
+    - paragraph: Only active organisations with an explicit RE6 link effective at the ODS snapshot can provide current parliamentary evidence.
+    - paragraph: No RE6 operator code is recorded for this organisation in the selected ODS report.
+    - heading "Constituencies with GP registrations" [level=3]
+    - text: Registered patients
+    - paragraph: GP-only LSOA21 best-fit allocations, ranked by patient count. Shares use this practice’s full list, including the explicit unmapped bucket.
+    - paragraph: "Source practice list: 100 · Unmapped: 10 · Extract 1 January 2026"
+    - list:
+      - listitem:
+        - link "Demo Vale (X14000002)":
+          - /url: "?view=constituency&code=X14000002"
+        - text: 60 registrations · 60% of practice list
+      - listitem:
+        - link "Demo Harbour (X14000001)":
+          - /url: "?view=constituency&code=X14000001"
+        - text: 30 registrations · 30% of practice list
+    - paragraph: "Organisation source: Synthetic fixture; no official data · snapshot 1 January 2026."
+- complementary "How to read this":
+  - heading "How to read this" [level=2]
+  - paragraph:
+    - strong: Current MP
+    - text: means current at the Parliament snapshot. It does not describe representation when the earlier GP extract was taken.
+  - paragraph:
+    - strong: Site location
+    - text: is an address allocation. It does not establish an ICB or trust catchment, service coverage or commissioning responsibility.
+  - paragraph:
+    - strong: Registered patients
+    - text: come from a GP practice list. They are not a census resident count or a measure of care received.
+  - paragraph:
+    - strong: "Country coverage:"
+    - text: constituency and MP records cover the UK. GP registrations cover England practices; GP addresses and some site reports include Wales. Trusts and commissioners are mainly England reports. Missing evidence in Scotland, Wales or Northern Ireland does not mean no NHS services.
+  - heading "Coverage visible in this release" [level=3]
+  - paragraph: 1 active provider/commissioner addresses are unmapped; 1 active RE6 links have an unresolved operator code; 10 registered patients remain in the explicit unmapped bucket.
+  - group: Sources and method
+- contentinfo:
+  - paragraph: Independent OPL Advisory preview · not an NHS or UK Parliament service. No live source calls are made in this browser.
+  - paragraph: Pinned snapshot e4356d573fc0 · 650 constituencies · 64,040 ODS codes

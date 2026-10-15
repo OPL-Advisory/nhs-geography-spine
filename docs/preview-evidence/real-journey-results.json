@@ -1,0 +1,31 @@
+{
+  "scope": "Local real-source automated navigation; no user trial",
+  "browser": "151.0.7922.34",
+  "cases": [
+    {
+      "id": "J1-real-E14001518",
+      "result": "pass"
+    },
+    {
+      "id": "J2-real-A81001-E14001519-return",
+      "result": "pass"
+    },
+    {
+      "id": "J3-real-A0J1B-RTH-QE1",
+      "result": "pass"
+    },
+    {
+      "id": "J4-real-mobile-Densham-share",
+      "result": "pass"
+    }
+  ],
+  "timings": {
+    "initialDeepLinkMs": 116,
+    "firstOrganisationSearchMs": 203
+  },
+  "noExternalRequests": true,
+  "limits": [
+    "Loopback timings, not mobile network or human completion times",
+    "No exported real screenshots or record JSON"
+  ]
+}

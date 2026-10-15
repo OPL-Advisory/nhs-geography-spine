@@ -1,5 +1,36 @@
 # NHS Parliamentary Lens — static candidate
 
+## v0.5 controlled-preview preparation
+
+The current candidate remains **local only**. See the
+[preview-readiness decision](../docs/PREVIEW_READINESS_REPORT.md),
+[four user journeys](../docs/USER_JOURNEYS.md),
+[rights gate](../docs/RIGHTS_AND_ATTRIBUTION_GATE.md),
+[human trial protocol](../docs/USER_TEST_PROTOCOL.md) and
+[release/hosting/rollback runbook](../docs/CONTROLLED_PREVIEW_RUNBOOK.md).
+
+Release schema 2 uses `details/organisations/<first-two-code-characters>/<code>.json`.
+Constituencies remain flat; query-string links remain unchanged. The browser
+still reads schema 1 flat releases for rollback compatibility. The hash manifest
+includes the sharded paths, and the build/verifier refuse a directory above
+Netlify's 54,000-file limit. `python -m web.release verify --site web/dist` checks
+all hashes, index identities and rendered relationship targets.
+
+`python -m web.rehearse --directory /tmp/lens-check` runs small fictional
+release/access/browser tests; add `--full-size` for 650 + 64,040 fictional details.
+Use a fresh directory. Install dev-only JS tools with
+`npm ci --prefix web --ignore-scripts` and
+`cd web && npx playwright install chromium firefox webkit`.
+Neither command uploads a candidate or changes a host. Human testing, spoken
+screen-reader/native zoom and approved provider checks remain separate gates.
+
+The protected loopback host pins each initial page load to an immutable
+`/candidates/<archive-sha>/` URL before serving shell bytes; a current-pin change
+cannot mix that page's script and metadata. Copied candidate links retain their
+release. GP source links/labels are projected from the accepted manifest; local
+file fixtures use the non-vintage NHS publication series rather than exposing
+local paths. The source-linked HTML bytes are covered by the static hashes.
+
 This is a read-only browser consumer of the accepted v0.3 JSON and QA contracts. It makes no browser calls to NHS, ODS, ONS or Parliament APIs and has no backend, cookies, analytics or secrets. The site builder reads the accepted `data/processed` bundle, reruns saved-output QA, projects only fields needed for the pages, creates sorted search indexes and per-code details, and publishes a complete local directory atomically. The output is ignored by Git.
 
 ## Build and preview
